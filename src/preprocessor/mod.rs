@@ -101,8 +101,7 @@ impl<'a> Preprocessor<'a> {
                         result.push('\n');
                         continue;
                     }
-                    DirectiveResult::Continue => {
-                    }
+                    DirectiveResult::Continue => {}
                 }
             }
 
@@ -233,9 +232,7 @@ impl<'a> Preprocessor<'a> {
 
                 Ok(DirectiveResult::SkipLine)
             }
-            "#" => {
-                Ok(DirectiveResult::SkipLine)
-            }
+            "#" => Ok(DirectiveResult::SkipLine),
             "#else" => {
                 if !self.support_conditionals {
                     return Ok(DirectiveResult::SkipLine);
@@ -256,9 +253,7 @@ impl<'a> Preprocessor<'a> {
 
                 Ok(DirectiveResult::SkipLine)
             }
-            _ => {
-                Ok(DirectiveResult::ProcessLine(directive.to_string()))
-            }
+            _ => Ok(DirectiveResult::ProcessLine(directive.to_string())),
         }
     }
 
@@ -317,47 +312,45 @@ impl<'a> Preprocessor<'a> {
                     escape_next = true;
                     result.push(c);
                 }
-                '/' if !in_string && !in_char && !in_comment => {
-                    match chars.peek() {
-                        Some('/') => {
-                            chars.next();
-                            if self.preserve_line_numbers {
-                                result.push(' ');
-                                for ch in chars.by_ref() {
-                                    if ch == '\n' {
-                                        result.push('\n');
-                                        position.line += 1;
-                                        position.column = 1;
-                                        break;
-                                    }
-                                    result.push(' ');
+                '/' if !in_string && !in_char && !in_comment => match chars.peek() {
+                    Some('/') => {
+                        chars.next();
+                        if self.preserve_line_numbers {
+                            result.push(' ');
+                            for ch in chars.by_ref() {
+                                if ch == '\n' {
+                                    result.push('\n');
+                                    position.line += 1;
+                                    position.column = 1;
+                                    break;
                                 }
-                            } else {
-                                for ch in chars.by_ref() {
-                                    if ch == '\n' {
-                                        result.push('\n');
-                                        position.line += 1;
-                                        position.column = 1;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        Some('*') => {
-                            chars.next();
-                            comment_start = Some(position);
-                            in_comment = true;
-
-                            if self.preserve_line_numbers {
-                                result.push(' ');
                                 result.push(' ');
                             }
-                        }
-                        _ => {
-                            result.push(c);
+                        } else {
+                            for ch in chars.by_ref() {
+                                if ch == '\n' {
+                                    result.push('\n');
+                                    position.line += 1;
+                                    position.column = 1;
+                                    break;
+                                }
+                            }
                         }
                     }
-                }
+                    Some('*') => {
+                        chars.next();
+                        comment_start = Some(position);
+                        in_comment = true;
+
+                        if self.preserve_line_numbers {
+                            result.push(' ');
+                            result.push(' ');
+                        }
+                    }
+                    _ => {
+                        result.push(c);
+                    }
+                },
                 '*' if in_comment => {
                     if let Some('/') = chars.peek() {
                         chars.next();

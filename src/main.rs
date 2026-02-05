@@ -424,7 +424,6 @@ fn handle_docs_command(
 
     if open {
         println!("Документация будет открыта в браузере.");
-
     }
 
     Ok(())
