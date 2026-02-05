@@ -1,0 +1,12 @@
+fn main() {
+    int counter = 0;
+    float pi = 3.14159;
+    bool flag = true;
+
+    if (counter < 10 && flag) {
+        counter = counter + 1;
+        pi = pi * 2.0;
+    }
+
+    return counter;
+}
