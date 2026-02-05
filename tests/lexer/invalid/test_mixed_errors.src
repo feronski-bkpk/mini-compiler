@@ -1,0 +1,4 @@
+x = @;
+y = 123.;
+z = "unterminated
+w = #test;
