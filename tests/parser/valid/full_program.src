@@ -1,0 +1,66 @@
+// Полная программа, демонстрирующая все возможности языка
+
+#define MAX_SIZE 100
+#define DEBUG 1
+
+struct Point {
+    int x;
+    int y;
+};
+
+struct Circle {
+    struct Point center;
+    int radius;
+};
+
+fn create_point(int x, int y) -> struct Point {
+    struct Point p;
+    p.x = x;
+    p.y = y;
+    return p;
+}
+
+fn area(struct Circle c) -> float {
+    float pi = 3.14159;
+    return pi * c.radius * c.radius;
+}
+
+fn main() -> int {
+    // Создание и инициализация
+    struct Point p1 = create_point(10, 20);
+    struct Point p2;
+    p2.x = 30;
+    p2.y = 40;
+    
+    struct Circle circle;
+    circle.center = p1;
+    circle.radius = 5;
+    
+    // Вычисления
+    float circle_area = area(circle);
+    int distance_x = p2.x - p1.x;
+    int distance_y = p2.y - p1.y;
+    
+    // Условная логика
+    bool is_large;
+    if (circle.radius > MAX_SIZE) {
+        is_large = true;
+    } else {
+        is_large = false;
+    }
+    
+    // Циклы
+    int sum = 0;
+    for (int i = 0; i < distance_x; i = i + 1) {
+        if (i % 2 == 0) {
+            sum = sum + i;
+        }
+    }
+    
+    #ifdef DEBUG
+        // Отладочный код
+        return sum;
+    #else
+        return circle_area;
+    #endif
+}

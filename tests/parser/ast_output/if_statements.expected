@@ -1,0 +1,52 @@
+Program [line 1]:
+  FunctionDecl: main -> void [line 1]:
+    Parameters: []
+    Body [line 1]:
+      Block [line 2-23]:
+        VarDecl: int x = 10
+        
+        IfStmt [line 5]:
+          Condition: (x > 0)
+          Then:
+            Block [line 6-7]:
+              Expr: x = 1
+        
+        IfStmt [line 10]:
+          Condition: (x > 5)
+          Then:
+            Block [line 11]:
+              Expr: x = 2
+          Else:
+            Block [line 12-13]:
+              Expr: x = 3
+        
+        IfStmt [line 16]:
+          Condition: (x == 1)
+          Then:
+            Block [line 17]:
+              Expr: x = 4
+          Else:
+            IfStmt [line 18]:
+              Condition: (x == 2)
+              Then:
+                Block [line 19]:
+                  Expr: x = 5
+              Else:
+                Block [line 20]:
+                  Expr: x = 6
+        
+        IfStmt [line 23]:
+          Condition: (x > 0)
+          Then:
+            Block [line 23]:
+              IfStmt [line 24]:
+                Condition: (x < 10)
+                Then:
+                  Block [line 24]:
+                    IfStmt [line 25]:
+                      Condition: (x != 5)
+                      Then:
+                        Block [line 26]:
+                          Expr: x = 7
+        
+        Return: x

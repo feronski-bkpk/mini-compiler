@@ -1,0 +1,4 @@
+fn main() {
+    unknown_type x = 42;  // Ошибка: неизвестный тип
+    return 0;
+}

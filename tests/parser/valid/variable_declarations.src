@@ -1,0 +1,11 @@
+fn main() {
+    int a;
+    int b = 42;
+    float pi = 3.14159;
+    bool flag = true;
+    string msg = "Hello, World!";
+    int x = 10, y = 20;  // Несколько объявлений в одной строке
+    
+    a = 100;
+    return a + b;
+}

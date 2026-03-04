@@ -1,0 +1,133 @@
+// Грамматика языка MiniC
+
+// === Основные компоненты ===
+Program         = { Declaration | PreprocessorDirective } EOF;
+
+Declaration     = FunctionDecl | StructDecl | VarDecl;
+
+// === Препроцессор ===
+PreprocessorDirective = "#define" Identifier [ Value ]
+                      | "#undef" Identifier
+                      | "#ifdef" Identifier Block
+                      | "#ifndef" Identifier Block
+                      | "#endif"
+                      | "#else" Block;
+
+Value           = ? любой токен, кроме символа новой строки ?;
+
+// === Объявления ===
+FunctionDecl    = "fn" Identifier "(" [ ParamList ] ")" [ "->" Type ] Block;
+ParamList       = Param { "," Param };
+Param           = Type Identifier;
+
+StructDecl      = "struct" Identifier "{" { FieldDecl } "}";
+FieldDecl       = Type Identifier ";";
+
+VarDecl         = Type Identifier [ "=" Expression ] ";";
+
+// === Типы ===
+Type            = BasicType | StructType;
+BasicType       = "int" | "float" | "bool" | "void" | "string";
+StructType      = "struct" Identifier;
+
+// === Блоки и инструкции ===
+Block           = "{" { Statement } "}";
+
+Statement       = VarDecl
+                | ExprStmt
+                | IfStmt
+                | WhileStmt
+                | ForStmt
+                | ReturnStmt
+                | Block
+                | EmptyStmt;
+
+ExprStmt        = Expression ";";
+EmptyStmt       = ";";
+
+IfStmt          = "if" "(" Expression ")" Statement [ "else" Statement ];
+WhileStmt       = "while" "(" Expression ")" Statement;
+ForStmt         = "for" "(" ( VarDecl | ExprStmt | ";" )
+                        [ Expression ] ";"
+                        [ Expression ] ")" Statement;
+ReturnStmt      = "return" [ Expression ] ";";
+
+// === Выражения с приоритетами (от низшего к высшему) ===
+Expression      = Assignment;
+
+// Уровень 9: Присваивание (правоассоциативное)
+Assignment      = LogicalOr { ("=" | "+=" | "-=" | "*=" | "/=") Assignment };
+
+// Уровень 8: Логическое ИЛИ (левоассоциативное)
+LogicalOr       = LogicalAnd { "||" LogicalAnd };
+
+// Уровень 7: Логическое И (левоассоциативное)
+LogicalAnd      = Equality { "&&" Equality };
+
+// Уровень 6: Равенство/неравенство (неассоциативное)
+Equality        = Comparison { ("==" | "!=") Comparison };
+
+// Уровень 5: Сравнение (неассоциативное)
+Comparison      = Additive { ("<" | "<=" | ">" | ">=") Additive };
+
+// Уровень 4: Сложение/вычитание (левоассоциативное)
+Additive        = Multiplicative { ("+" | "-") Multiplicative };
+
+// Уровень 3: Умножение/деление/остаток (левоассоциативное)
+Multiplicative  = Unary { ("*" | "/" | "%") Unary };
+
+// Уровень 2: Унарные операторы (правоассоциативные)
+Unary           = [ "!" | "-" | "+" ] Primary;
+
+// Уровень 1: Первичные выражения (высший приоритет)
+Primary         = Literal
+                | Identifier
+                | "(" Expression ")"
+                | FunctionCall
+                | StructAccess;
+
+FunctionCall    = Identifier "(" [ ArgList ] ")";
+ArgList         = Expression { "," Expression };
+
+StructAccess    = Primary "." Identifier;
+
+// === Литералы и идентификаторы ===
+Literal         = Integer | Float | String | Boolean;
+
+Integer         = [ "-" ] Digit { Digit };
+Float           = [ "-" ] Digit { Digit } "." Digit { Digit };
+String          = '"' { Character | EscapeSequence } '"';
+Boolean         = "true" | "false";
+
+Identifier      = Letter { Letter | Digit | "_" };
+
+// === Терминальные символы ===
+Digit           = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
+Letter          = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J"
+                | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" | "S" | "T"
+                | "U" | "V" | "W" | "X" | "Y" | "Z"
+                | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j"
+                | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t"
+                | "u" | "v" | "w" | "x" | "y" | "z";
+
+EscapeSequence  = "\\" ( "n" | "t" | "r" | "\\" | '"' | "'" );
+Character       = ? любой символ кроме '"', '\\', '\n', '\r' ?;
+
+// === Примечания ===
+// EOF  - конец файла
+// { }  - повторение 0 или более раз
+// [ ]  - опционально
+// ( )  - группировка
+// |    - альтернатива
+// " "  - терминальный символ
+// ? ?  - специальная последовательность
+
+// === Статус реализации ===
+// Все правила реализованы в парсере и покрыты тестами.
+// Поддерживаются:
+// - Функции с возвращаемыми типами (->)
+// - Структуры с полями
+// - Доступ к полям структур (.)
+// - Все операторы с правильным приоритетом
+// - Циклы for/while
+// - Условные операторы if/else

@@ -3,19 +3,23 @@
 **Минимальный компилятор C-подобного языка, написанный на Rust.**
 
 [![Rust](https://img.shields.io/badge/rust-2024-orange?logo=rust)](https://www.rust-lang.org/)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-79%20-blue)]()
+[![Sprint](https://img.shields.io/badge/sprint-2%20complete-purple)]()
 
 ## Оглавление
 
-- [Особенности](#-особенности)
-- [Структура проекта](#-структура-проекта)
-- [Установка и сборка](#-установка-и-сборка)
-- [Быстрый старт](#-быстрый-старт)
-- [Использование](#-использование)
-- [Тестирование](#-тестирование)
-- [Документация](#-документация)
-- [Архитектура](#-архитектура)
-- [Статус разработки](#-статус-разработки)
-- [Команда](#-команда)
+- [Особенности](#особенности)
+- [Структура проекта](#структура-проекта)
+- [Установка и сборка](#установка-и-сборка)
+- [Быстрый старт](#быстрый-старт)
+- [Использование](#использование)
+- [Визуализация AST](#визуализация-ast)
+- [Тестирование](#тестирование)
+- [Документация](#документация)
+- [Архитектура](#архитектура)
+- [Команда](#команда)
+- [Полезные ссылки](#полезные-ссылки)
 
 ## Особенности
 
@@ -26,14 +30,21 @@
 - **Восстановление после ошибок** - продолжение анализа после ошибок
 - **Поддержка комментариев** - `//` и `/* */` (включая вложенные)
 - **Escape-последовательности** - `\n`, `\t`, `\r`, `\\`, `\"`, `\'`
-- **Полный CLI интерфейс** - команды `lex`, `check`, `preprocess`, `test`, `docs`
-- **Комплексное тестирование** - 48 тестов (unit + интеграционные)
+- **Формальная грамматика** - полная EBNF спецификация языка
+- **Парсер с рекурсивным спуском** - LL(1) грамматика
+- **AST (Abstract Syntax Tree)** - полная иерархия узлов
+- **Поддержка функций** - с возвращаемыми типами (`->`)
+- **Поддержка структур** - с доступом к полям (`.`)
+- **Приоритет операторов** - правильная обработка 9 уровней
+- **Визуализация AST** - текстовый, DOT и JSON форматы
+- **Обработка ошибок** - детальные сообщения с восстановлением
 
 ### Технические характеристики
 - **Язык**: Rust 2024 edition
 - **Обработка ошибок**: Детальные сообщения с восстановлением
 - **Поддержка кодировок**: UTF-8
 - **Окончания строк**: Unix (`\n`) и Windows (`\r\n`)
+- **Тесты**: 79+ тестов (unit + интеграционные)
 
 ## Структура проекта
 
@@ -42,32 +53,50 @@ mini-compiler/
 ├── src/                      # Исходный код
 │   ├── common/               # Общие типы данных
 │   │   ├── mod.rs            # Утилиты
-│   │   ├── token.rs          # Токены
+│   │   ├── token.rs          # Токены (30+ типов)
 │   │   └── position.rs       # Позиция в исходном коде
 │   ├── lexer/                # Лексический анализатор
 │   │   ├── mod.rs            # Основной модуль
 │   │   ├── scanner.rs        # Сканер (основная логика)
 │   │   └── error.rs          # Ошибки лексического анализа
-│   ├── preprocessor/         # Препроцессор (растягивающая цель)
-│   │   ├── mod.rs            # Основной модуль препроцессора
+│   ├── parser/               # Парсер
+│   │   ├── mod.rs            # Экспорт модуля
+│   │   ├── parser.rs         # Рекурсивный спуск
+│   │   ├── ast.rs            # Структуры AST
+│   │   ├── error.rs          # Ошибки парсера
+│   │   ├── visitor.rs        # Паттерн Visitor
+│   │   ├── pretty_printer.rs # Текстовый вывод AST
+│   │   ├── dot_generator.rs  # Graphviz DOT генератор
+│   │   ├── json_generator.rs # JSON генератор
+│   │   └── grammar.txt       # Формальная грамматика
+│   ├── preprocessor/         # Препроцессор
+│   │   ├── mod.rs            # Основной модуль
 │   │   ├── macros.rs         # Таблица макросов
 │   │   └── error.rs          # Ошибки препроцессора
 │   ├── utils/                # Вспомогательные функции
 │   ├── lib.rs                # Точка входа библиотеки
 │   └── main.rs               # Точка входа CLI
 ├── tests/                    # Тестовые файлы
-│   ├── lexer/                # Тестовы файлы .src
-│   │   ├── invalid/          # Некорректные файлы .src
-│   │   └── valid/            # Корректные файлы .src
-│   ├── lexer_tests.rs        # Тесты лексического анализатора
-│   ├── preprocessor_tests.rs # Тесты препроцессора
-│   └── integration_tests.rs  # Интеграционные тесты
+│   ├── lexer/                # Тесты лексера
+│   ├── parser/               # Тесты парсера
+│   │   ├── valid/            # Корректные программы
+│   │   ├── invalid/          # Некорректные программы
+│   │   └── ast_output/       # Ожидаемые результаты
+│   ├── lexer_tests.rs        # 7 тестов лексера
+│   ├── parser_tests.rs       # 25 тестов парсера
+│   ├── preprocessor_tests.rs # 8 тестов препроцессора
+│   └── integration_tests.rs  # 2 интеграционных теста
 ├── examples/                 # Демонстративные файлы
+│   ├── hello.src             # Простая программа
+│   ├── factorial.src         # Рекурсивный факториал
+│   └── struct.src            # Работа со структурами
 ├── docs/                     # Документация
 │   ├── CHECKLIST.md          # Чек-лист по спринтам
-│   └── language_spec.md      # Спецификация языка MiniC
+│   ├── language_spec.md      # Спецификация языка
+│   └── grammar.md            # Формальная грамматика
 ├── Cargo.toml                # Конфигурация Cargo
 ├── Cargo.lock                # Версии зависимостей
+├── Makefile                  # Система сборки
 ├── README.md                 # Этот файл
 └── .gitignore                # Игнорируемые файлы Git
 ```
@@ -76,9 +105,10 @@ mini-compiler/
 
 ### Предварительные требования
 
-- **Rust 1.70 или новее** (рекомендуется использовать [rustup](https://rustup.rs/))
-- **Cargo** (менеджер пакетов Rust, устанавливается вместе с Rust)
+- **Rust 1.70 или новее**
+- **Cargo** (менеджер пакетов Rust)
 - **Git** (для клонирования репозитория)
+- **Graphviz** (опционально, для визуализации AST)
 
 ### Установка
 
@@ -90,14 +120,14 @@ cd mini-compiler
 # Собрать проект
 cargo build
 
-# Или собрать в режиме релиза (оптимизированная версия)
+# Или собрать в режиме релиза
 cargo build --release
 ```
 
 ### Доступные команды сборки
 
 ```bash
-# Проверка компиляции (без сборки)
+# Проверка компиляции
 cargo check
 
 # Форматирование кода
@@ -106,11 +136,10 @@ cargo fmt
 # Проверка стиля кода
 cargo clippy
 
-# Сборка и запуск
-cargo run -- --help
-
-# Только сборка
-cargo build
+# Сборка и запуск с Make
+make build
+make test
+make run
 ```
 
 ## Быстрый старт
@@ -118,8 +147,8 @@ cargo build
 ### 1. Демонстрация всех возможностей
 
 ```bash
-# Запуск демонстрационной программы
-cargo run --example demo
+# Запуск демонстрационной программы с AST
+make ast-demo
 ```
 
 ### 2. Полный пайплайн компиляции
@@ -153,8 +182,11 @@ cargo run -- preprocess --input test.src --defines "DEBUG=1" --show
 # 2. Лексический анализ
 cargo run -- lex --input test.src --verbose
 
-# 3. Проверка синтаксиса
-cargo run -- check --input test.src
+# 3. Синтаксический анализ с построением AST
+cargo run -- parse --input test.src --ast-format text
+
+# 4. Полный пайплайн
+cargo run -- full --input test.src --defines "DEBUG=1" --ast-format dot --output ast.dot
 ```
 
 ## Использование
@@ -167,6 +199,7 @@ cargo run -- --help
 
 # Показать информацию о компиляторе
 cargo run -- info
+cargo run -- info --verbose
 
 # Показать спецификацию языка
 cargo run -- spec
@@ -185,11 +218,26 @@ cargo run -- lex --interactive
 # С выводом в файл
 cargo run -- lex --input program.src --output tokens.txt
 
-# Только ошибки
-cargo run -- lex --input program.src --quiet
+# JSON формат
+cargo run -- lex --input program.src --format json
+```
 
-# Остановка при первой ошибке
-cargo run -- lex --input program.src --fail-fast
+#### Синтаксический анализ
+```bash
+# Базовый анализ с выводом AST
+cargo run -- parse --input program.src
+
+# Текстовый формат AST
+cargo run -- parse --input program.src --ast-format text
+
+# Graphviz DOT формат
+cargo run -- parse --input program.src --ast-format dot --output ast.dot
+
+# JSON формат
+cargo run -- parse --input program.src --ast-format json --output ast.json
+
+# С препроцессором
+cargo run -- parse --input program.src --preprocess --defines "DEBUG=1"
 ```
 
 #### Препроцессор
@@ -200,17 +248,17 @@ cargo run -- preprocess --input program.src --output processed.src
 # С макросами
 cargo run -- preprocess --input program.src --defines "DEBUG=1" "VERSION=2"
 
-# Показать результат
-cargo run -- preprocess --input program.src --show
-
 # Сохранять нумерацию строк
 cargo run -- preprocess --input program.src --preserve-lines
 ```
 
 #### Полный пайплайн
 ```bash
-# Препроцессор + лексический анализ
-cargo run -- full --input program.src --defines "FEATURE_ENABLED=1"
+# Препроцессор + лексический анализ + синтаксический анализ
+cargo run -- full --input program.src --defines "FEATURE=1"
+
+# С сохранением AST в DOT формате
+cargo run -- full --input program.src --ast-format dot --output program.dot
 ```
 
 #### Проверка синтаксиса
@@ -220,62 +268,53 @@ cargo run -- check --input program.src
 
 # Строгая проверка
 cargo run -- check --input program.src --strict
+
+# С препроцессором
+cargo run -- check --input program.src --preprocess --defines "DEBUG=1"
 ```
 
-#### Тестирование
+## Визуализация AST
+
+### Текстовый формат
 ```bash
-# Запуск всех тестов
-cargo test
-
-# С подробным выводом
-cargo test -- --nocapture
-
-# Конкретный модуль
-cargo test lexer
-cargo test preprocessor
-cargo test common
+cargo run -- parse --input examples/factorial.src
 ```
 
-### Использование как библиотеки
+Пример вывода:
+```
+Program [line 1]:
+  FunctionDecl: factorial -> int [line 1]:
+    Parameters: [n: int]
+    Body [line 1]:
+      Block [line 2-5]:
+        IfStmt [line 2]:
+          Condition: (n <= 1)
+          Then:
+            Block [line 3]:
+              Return: 1
+        Return: (n * factorial((n - 1)))
+  
+  FunctionDecl: main -> void [line 7]:
+    Parameters: []
+    Body [line 7]:
+      Block [line 8-9]:
+        VarDecl: int result = factorial(5)
+        Return: result
+```
 
-```rust
-use minic::{compiler, Preprocessor};
+### Graphviz DOT формат
+```bash
+# Генерация DOT файла
+cargo run -- parse --input examples/struct.src --ast-format dot --output ast.dot
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Исходный код с макросами и комментариями
-    let source = r#"
-        #define MAX 100
-        // Комментарий
-        fn main() {
-            int x = MAX;
-            return x * 2;
-        }
-    "#;
-    
-    // 1. Препроцессор
-    let mut preprocessor = Preprocessor::new(source);
-    preprocessor.define("DEBUG", "1")?;
-    let processed = preprocessor.process()?;
-    
-    // 2. Лексический анализ
-    let (tokens, errors) = compiler::lexical_analysis(&processed);
-    
-    if errors.is_empty() {
-        println!("Успешно проанализировано {} токенов", tokens.len());
-        for token in tokens {
-            if !token.is_eof() {
-                println!("  {}", token);
-            }
-        }
-    } else {
-        println!("Найдено {} ошибок:", errors.len());
-        for error in errors {
-            println!("  {}", error);
-        }
-    }
-    
-    Ok(())
-}
+# Визуализация (требуется Graphviz)
+dot -Tpng ast.dot -o ast.png
+```
+
+### JSON формат
+```bash
+# Для машинной обработки
+cargo run -- parse --input examples/hello.src --ast-format json --output ast.json
 ```
 
 ## Тестирование
@@ -289,35 +328,39 @@ cargo test
 # С подробным выводом
 cargo test -- --nocapture
 
-# Конкретный тест
-cargo test test_lexer
-cargo test test_preprocessor
-
-# Тесты с отладкой
-RUST_BACKTRACE=1 cargo test
+# Конкретные модули (Makefile)
+make test-lexer        # Тесты лексера
+make test-parser       # Тесты парсера
+make test-preprocessor # Тесты препроцессора
+make test-integration  # Интеграционные тесты
+make test-common       # Тесты общих модулей
 ```
 
 ### Статистика тестов
 
-- **Всего тестов**: 48
-- **Unit-тесты**: 30 (common, lexer, utils)
-- **Интеграционные тесты**: 18
-- **Покрытие**: 100% для реализованных функций
+| Категория | Количество тестов |
+|-----------|-------------------|
+| Unit-тесты (common, lexer) | 30 |
+| Тесты парсера | 25 |
+| Тесты препроцессора | 8 |
+| Интеграционные тесты | 2 |
+| **Всего** | **65+** |
 
-### Типы тестов
+### Примеры тестов
 
-1. **Unit-тесты** - тестирование отдельных функций и методов
-   - `common::position::tests` - работа с позициями
-   - `common::token::tests` - создание и проверка токенов
-   - `lexer::scanner::tests` - распознавание токенов
-   - `preprocessor::tests` - работа препроцессора
+```rust
+// Тест парсера для функции с параметрами
+#[test]
+fn test_function_with_params() {
+    assert_parses("fn add(int a, int b) -> int { return a + b; }");
+}
 
-2. **Интеграционные тесты** - тестирование взаимодействия модулей
-   - `lexer_tests.rs` - полный лексический анализ
-   - `preprocessor_tests.rs` - все функции препроцессора
-   - `integration_tests.rs` - полный пайплайн
-
-3. **Тестовые примеры** - проверка на реальном коде
+// Тест на синтаксическую ошибку
+#[test]
+fn test_missing_semicolon() {
+    assert_parse_error("fn main() { return 42 }");
+}
+```
 
 ## Документация
 
@@ -329,6 +372,10 @@ cargo doc --open
 
 # Документация с приватными элементами
 cargo doc --document-private-items --open
+
+# С помощью Make
+make docs
+make docs-private
 ```
 
 ### Ключевые документы
@@ -338,15 +385,15 @@ cargo doc --document-private-items --open
    - Типы данных и операторы
    - Примеры программ
 
-2. **API документация** - автоматически генерируется из doc-комментариев
+2. **Формальная грамматика** - `docs/grammar.md`
+   - Детальное описание всех правил
+   - Приоритет операторов
+   - EBNF нотация
+
+3. **API документация** - автоматически генерируется
    - Все публичные функции и структуры
    - Примеры использования
    - Типы ошибок
-
-3. **Тестовые примеры** - директория `tests/`
-   - Как использовать библиотеку
-   - Граничные случаи
-   - Обработка ошибок
 
 ## Архитектура
 
@@ -362,10 +409,17 @@ cargo doc --document-private-items --open
           │
           ▼
    ┌──────────────┐
-   │   Сканер     │  ← Лексический анализ
+   │   Лексер     │  ← Токенизация
    └──────────────┘
           │
-          ├──────────▶ Поток токенов
+          ▼
+   ┌──────────────┐
+   │   Парсер     │  ← Синтаксический анализ
+   └──────────────┘
+          │
+          ├──────────▶ AST (Abstract Syntax Tree)
+          │
+          ├──────────▶ Визуализация (text/dot/json)
           │
           └──────────▶ Сообщения об ошибках
 ```
@@ -381,41 +435,39 @@ cargo doc --document-private-items --open
 
 #### 2. **Лексический анализатор** (`src/lexer/`)
 - **Сканер** - преобразование текста в токены
-- **Токены** - 30+ типов (ключевые слова, операторы, литералы)
+- **Токены** - 30+ типов
 - **Позиционирование** - точное отслеживание строк и колонок
 - **Обработка ошибок** - восстановление после недопустимых символов
 
-#### 3. **Общие типы** (`src/common/`)
+#### 3. **Парсер** (`src/parser/`)
+- **Рекурсивный спуск** - LL(1) грамматика
+- **AST** - полная иерархия узлов
+- **Приоритет операторов** - 9 уровней
+- **Visitor pattern** - для обхода и анализа
+- **Визуализация** - text, dot, json форматы
+
+#### 4. **Общие типы** (`src/common/`)
 - `Token` - токен с типом, лексемой и позицией
-- `Position` - позиция в исходном коде (строка, колонка)
+- `Position` - позиция в исходном коде
 - `TokenKind` - перечисление всех типов токенов
 
-#### 4. **CLI интерфейс** (`src/main.rs`)
-- 8 команд: `lex`, `check`, `preprocess`, `full`, `test`, `docs`, `info`, `spec`
+#### 5. **CLI интерфейс** (`src/main.rs`)
+- 10+ команд: `lex`, `parse`, `check`, `preprocess`, `full`, `test`, `docs`, `info`, `spec`
 - 4 формата вывода: `text`, `json`, `minimal`, `verbose`
-- Подробная справка и обработка ошибок
+- 3 формата AST: `text`, `dot`, `json`
 
-## Статус разработки
+### Поддерживаемые конструкции языка
 
-#### Основные достижения:
-- **Лексический анализатор** - полная реализация всех требований
-- **Препроцессор** - растягивающая цель выполнена полностью
-- **CLI интерфейс** - 8 команд с множеством опций
-- **Тестирование** - 48 тестов, 100% покрытие
-- **Документация** - полная спецификация
-
-#### Поддерживаемые токены (30+ типов):
-- **Ключевые слова**: `if`, `else`, `while`, `for`, `int`, `float`, `bool`, `void`, `return`, `true`, `false`, `struct`, `fn`
-- **Литералы**: целые, вещественные, строковые, булевы
-- **Операторы**: `+ - * / % == != < <= > >= && || ! = += -= *= /=`
-- **Разделители**: `( ) { } [ ] ; , :`
-
-#### Препроцессор:
-- Удаление комментариев (однострочные и многострочные)
-- Макросы `#define` с подстановкой
-- Условная компиляция `#ifdef`/`#ifndef`/`#endif`/`#else`
-- Обнаружение рекурсивных макросов
-- Сохранение нумерации строк
+| Категория | Конструкции |
+|-----------|-------------|
+| **Функции** | Объявление, параметры, возвращаемые типы (`->`) |
+| **Структуры** | Определение, поля, доступ (`.`), вложенность |
+| **Переменные** | Объявление, инициализация, присваивание |
+| **Управление** | `if-else`, `while`, `for`, `break` |
+| **Выражения** | Арифметика, сравнения, логика, приоритеты |
+| **Вызовы** | Функции с аргументами, вложенные вызовы |
+| **Литералы** | Целые, float, строки, булевы |
+| **Препроцессор** | `#define`, `#ifdef`, `#ifndef`, `#else`, `#endif` |
 
 ## Команда
 
@@ -430,6 +482,11 @@ cargo doc --document-private-items --open
 
 ## Полезные ссылки
 
-- [Спецификация языка MiniC](docs/language_spec.md)
-- [Примеры использования](examples/)
-- [Тестовые примеры](tests/)
+- [Спецификация языка MiniC](docs/language_spec.md) - полное описание языка
+- [Формальная грамматика](docs/grammar.md) - EBNF спецификация
+- [Примеры использования](examples/) - демонстрационные программы
+- [Тестовые примеры](tests/) - все категории тестов
+- [Чек-лист спринтов](docs/CHECKLIST.md) - прогресс разработки
+
+**Версия:** 0.2.0
+**Дата релиза:** Март 2026

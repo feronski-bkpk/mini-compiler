@@ -1,0 +1,23 @@
+struct Point {
+    int x;
+    int y;
+};
+
+struct Rectangle {
+    struct Point top_left;
+    struct Point bottom_right;
+    float area;
+    bool visible;
+};
+
+fn main() {
+    struct Point p;
+    p.x = 10;
+    p.y = 20;
+    
+    struct Rectangle r;
+    r.top_left = p;
+    r.visible = true;
+    
+    return 0;
+}

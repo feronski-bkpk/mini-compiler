@@ -12,7 +12,9 @@
 8. [Структуры](#структуры)
 9. [Комментарии](#комментарии)
 10. [Препроцессор](#препроцессор)
-11. [Примеры программ](#примеры-программ)
+11. [Синтаксис](#синтаксис)
+12. [Примеры программ](#примеры-программ)
+13. [Справочная информация](#справочная-информация)
 
 ## Обзор языка
 
@@ -41,9 +43,10 @@ Token = Keyword | Identifier | Literal | Operator | Delimiter
 
 **Важное замечание:** Комментарии удаляются препроцессором до лексического анализа.
 
-### Ключевые слова (13)
+### Ключевые слова (14)
 ```
-Keyword = "if" | "else" | "while" | "for" | "int" | "float" | "bool" | "void" | "return" | "true" | "false" | "struct" | "fn"
+Keyword = "if" | "else" | "while" | "for" | "int" | "float" | "bool"
+| "void" | "return" | "true" | "false" | "struct" | "fn" | "string"
 ```
 
 ### Идентификаторы
@@ -101,8 +104,6 @@ Float = [ "-" ] Digit { Digit } "." Digit { Digit }
 3.14
 -2.71828
 123.456
-.5          // НЕ поддерживается (должна быть цифра перед точкой)
-123.        // НЕ поддерживается (должна быть цифра после точки)
 ```
 
 #### Строковые литералы
@@ -167,6 +168,12 @@ Boolean = "true" | "false"
 -=  // Присваивание с вычитанием
 *=  // Присваивание с умножением
 /=  // Присваивание с делением
+```
+
+#### Специальные операторы
+```
+->  // Указание возвращаемого типа функции
+.   // Доступ к полям структуры
 ```
 
 ### Разделители
@@ -238,19 +245,7 @@ string name = "MiniC";
 string path = "C:\\projects\\minic";
 ```
 
-### Производные типы (запланировано в будущих спринтах)
-
-#### Указатели
-```
-int* ptr;        // Указатель на int
-float* values;   // Указатель на float
-```
-
-#### Массивы
-```
-int arr[10];           // Массив из 10 int
-float matrix[3][3];    // Двумерный массив
-```
+### Производные типы
 
 #### Структуры (`struct`)
 Пользовательские составные типы:
@@ -266,6 +261,12 @@ struct Person {
     int age;
     bool active;
 };
+```
+
+#### Указатели и массивы (запланировано в будущих спринтах)
+```
+int* ptr;        // Указатель на int
+int arr[10];     // Массив из 10 int
 ```
 
 ## Выражения
@@ -303,6 +304,35 @@ bool d = (x > 0) && (x < 10);
 bool e = (status == "error") || (count == 0);
 ```
 
+### Вызовы функций
+```c
+int result = add(5, 3);
+print("result =", result);
+int x = foo();
+```
+
+### Доступ к полям структур
+```c
+struct Point p;
+p.x = 10;
+p.y = p.x + 5;
+```
+
+## Операторы
+
+### Оператор присваивания
+```c
+variable = expression;
+```
+
+**Составные операторы присваивания:**
+```c
+x += y;     // x = x + y
+x -= y;     // x = x - y
+x *= y;     // x = x * y
+x /= y;     // x = x / y
+```
+
 ### Приоритет операторов
 
 | Приоритет | Операторы | Ассоциативность | Пример |
@@ -321,34 +351,6 @@ bool e = (status == "error") || (count == 0);
 ```c
 int result = 2 + 3 * 4;       // 14, а не 20 (умножение имеет более высокий приоритет)
 bool check = x > 0 && x < 10; // && имеет меньший приоритет чем >, поэтому x > 0 вычисляется первым
-```
-
-## Операторы
-
-### Оператор присваивания
-```c
-variable = expression;
-```
-
-**Составные операторы присваивания:**
-```c
-x += y;     // x = x + y
-x -= y;     // x = x - y
-x *= y;     // x = x * y
-x /= y;     // x = x / y
-```
-
-### Инкремент и декремент (запланировано в будущих спринтах)
-```c
-x++;        // Постфиксный инкремент
-++x;        // Префиксный инкремент
-x--;        // Постфиксный декремент
---x;        // Префиксный декремент
-```
-
-### Условный оператор (тернарный, запланировано)
-```c
-condition ? expression1 : expression2;
 ```
 
 ## Управляющие конструкции
@@ -393,15 +395,6 @@ for (int i = 0; i < 10; i = i + 1) {
 }
 ```
 
-**Эквивалент `while`:**
-```c
-initialization;
-while (condition) {
-    // тело цикла
-    increment;
-}
-```
-
 ### Оператор `break`
 Прерывает выполнение цикла:
 ```c
@@ -409,17 +402,6 @@ while (true) {
     if (condition) {
         break;  // выход из цикла
     }
-}
-```
-
-### Оператор `continue`
-Переходит к следующей итерации цикла:
-```c
-for (int i = 0; i < 10; i = i + 1) {
-    if (i % 2 == 0) {
-        continue;  // пропустить четные числа
-    }
-    // обработать нечетные числа
 }
 ```
 
@@ -460,6 +442,19 @@ void print_hello() {
 void initialize() {
     // инициализация
     // return не требуется
+}
+```
+
+### Синтаксис со стрелкой
+Для функций можно использовать альтернативный синтаксис с указанием возвращаемого типа через `->`:
+
+```c
+fn add(int a, int b) -> int {
+    return a + b;
+}
+
+fn main() {
+    return 0;
 }
 ```
 
@@ -534,7 +529,6 @@ struct Rectangle {
 ```c
 struct Point p1;                      // Объявление
 struct Point p2 = {10, 20};           // Инициализация
-struct Point p3 = {.x = 5, .y = 15};  // Именованная инициализация (запланировано)
 ```
 
 ### Доступ к полям структуры
@@ -580,7 +574,7 @@ int x = 42;  // Комментарий после кода
 - Не могут быть вложены в строковые литералы
 - Многострочные комментарии поддерживают вложенность
 
-## Препроцессор <!-- НОВЫЙ РАЗДЕЛ -->
+## Препроцессор
 
 MiniC включает простой препроцессор, обрабатывающий директивы перед компиляцией.
 
@@ -629,48 +623,86 @@ string msg = GREETING; // Заменяется на string msg = "Hello, World!"
 3. Обрабатывает вложенные условные директивы
 4. Сохраняет нумерацию строк для корректных сообщений об ошибках
 
-## Области видимости
+## Синтаксис
 
-### Глобальная область видимости
-```c
-int global_var = 100;  // Глобальная переменная
+### Полная грамматика в EBNF
 
-void function() {
-    // имеет доступ к global_var
-}
-```
+```ebnf
+Program         = { Declaration | PreprocessorDirective } EOF;
 
-### Локальная область видимости (блочная)
-```c
-void my_function() {
-    int local_var = 42;  // Локальная переменная функции
-    
-    if (condition) {
-        int block_var = 10;  // Локальная переменная блока
-        // имеет доступ к local_var и block_var
-    }
-    // block_var здесь не видна
-}
-```
+PreprocessorDirective = "#define" Identifier [ Value ]
+                      | "#undef" Identifier
+                      | "#ifdef" Identifier Block
+                      | "#ifndef" Identifier Block
+                      | "#endif"
+                      | "#else" Block;
 
-### Правила видимости
-1. Внутренние блоки видят переменные внешних блоков
-2. Внешние блоки не видят переменные внутренних блоков
-3. Переменные перекрывают (shadow) одноименные переменные из внешних областей
+Declaration     = FunctionDecl | StructDecl | VarDecl;
 
-```c
-int x = 1;  // Глобальная x
+FunctionDecl    = "fn" Identifier "(" [ ParamList ] ")" [ "->" Type ] Block;
+ParamList       = Param { "," Param };
+Param           = Type Identifier;
 
-void test() {
-    int x = 2;  // Локальная x, перекрывает глобальную
-    
-    {
-        int x = 3;  // Еще одна x, перекрывает предыдущую
-        // здесь x == 3
-    }
-    // здесь x == 2
-}
-// здесь x == 1 (глобальная)
+StructDecl      = "struct" Identifier "{" { FieldDecl } "}";
+FieldDecl       = Type Identifier ";";
+
+VarDecl         = Type Identifier [ "=" Expression ] ";";
+
+Type            = BasicType | StructType;
+BasicType       = "int" | "float" | "bool" | "void" | "string";
+StructType      = "struct" Identifier;
+
+Block           = "{" { Statement } "}";
+
+Statement       = VarDecl
+                | ExprStmt
+                | IfStmt
+                | WhileStmt
+                | ForStmt
+                | ReturnStmt
+                | Block
+                | EmptyStmt;
+
+ExprStmt        = Expression ";";
+EmptyStmt       = ";";
+
+IfStmt          = "if" "(" Expression ")" Statement [ "else" Statement ];
+WhileStmt       = "while" "(" Expression ")" Statement;
+ForStmt         = "for" "(" ( VarDecl | ExprStmt | ";" )
+                        [ Expression ] ";"
+                        [ Expression ] ")" Statement;
+ReturnStmt      = "return" [ Expression ] ";";
+
+Expression      = Assignment;
+Assignment      = LogicalOr { ("=" | "+=" | "-=" | "*=" | "/=") Assignment };
+LogicalOr       = LogicalAnd { "||" LogicalAnd };
+LogicalAnd      = Equality { "&&" Equality };
+Equality        = Comparison { ("==" | "!=") Comparison };
+Comparison      = Additive { ("<" | "<=" | ">" | ">=") Additive };
+Additive        = Multiplicative { ("+" | "-") Multiplicative };
+Multiplicative  = Unary { ("*" | "/" | "%") Unary };
+Unary           = [ "!" | "-" | "+" ] Primary;
+Primary         = Literal
+                | Identifier
+                | "(" Expression ")"
+                | FunctionCall
+                | StructAccess;
+
+FunctionCall    = Identifier "(" [ ArgList ] ")";
+ArgList         = Expression { "," Expression };
+
+StructAccess    = Primary "." Identifier;
+
+Literal         = Integer | Float | String | Boolean;
+Integer         = [ "-" ] Digit { Digit };
+Float           = [ "-" ] Digit { Digit } "." Digit { Digit };
+String          = '"' { Character | EscapeSequence } '"';
+Boolean         = "true" | "false";
+
+Identifier      = Letter { Letter | Digit | "_" };
+Digit           = "0" | "1" | ... | "9";
+Letter          = "A" | ... | "Z" | "a" | ... | "z";
+EscapeSequence  = "\\" ( "n" | "t" | "r" | "\\" | '"' | "'" );
 ```
 
 ## Примеры программ
@@ -694,17 +726,10 @@ fn main() {
 }
 ```
 
-### Пример 2: Функции и условия с условной компиляцией
+### Пример 2: Функции и условия
 ```c
-// Вычисление факториала с отладочной информацией
-#define DEBUG
-
-int factorial(int n) {
-    #ifdef DEBUG
-        // Отладочный вывод
-        print("factorial called with n =", n);
-    #endif
-    
+// Вычисление факториала
+fn factorial(int n) -> int {
     if (n <= 1) {
         return 1;
     }
@@ -735,84 +760,68 @@ fn main() {
     struct Point origin = {0, 0};
     struct Circle circle = {origin, 5};
     
-    // Массив структур
-    struct Point points[3];
+    // Доступ к полям
+    circle.center.x = 10;
+    circle.center.y = 20;
     
-    // Инициализация массива в цикле
-    for (int i = 0; i < 3; i = i + 1) {
-        points[i].x = i * 10;
-        points[i].y = i * 20;
-    }
-    
-    return 0;
+    return circle.radius;
 }
 ```
 
-### Пример 4: Полная программа с комментариями
+### Пример 4: Полная программа
 ```c
 /*
  * Калькулятор площадей фигур
  * Демонстрирует все основные возможности языка
  */
 
-// Константы
 #define PI 3.14159
-#define VERSION "1.0"
 
-// Функция вычисления площади круга
-float circle_area(float radius) {
-    return PI * radius * radius;
+struct Circle {
+    struct Point {
+        int x;
+        int y;
+    } center;
+    int radius;
+};
+
+fn circle_area(struct Circle c) -> float {
+    return PI * c.radius * c.radius;
 }
 
-// Функция вычисления площади прямоугольника
-float rectangle_area(float width, float height) {
-    return width * height;
-}
-
-// Основная функция программы
 fn main() {
-    // Вычисление площадей
-    float circle = circle_area(5.0);      // ~78.53975
-    float rect = rectangle_area(4.0, 6.0); // 24.0
+    struct Circle c;
+    c.center.x = 0;
+    c.center.y = 0;
+    c.radius = 5;
     
-    // Сравнение результатов
-    bool circle_larger = circle > rect;   // true
-    
-    // Условное выполнение
-    if (circle_larger) {
-        // Круг имеет большую площадь
-        return 1;
-    } else {
-        // Прямоугольник имеет большую площадь
-        return 0;
-    }
+    float area = circle_area(c);
+    return 0;
 }
 ```
 
-## Сообщения об ошибках
+## Справочная информация
 
 ### Формат сообщений об ошибках
 ```
 file.src:line:column: type: message
 ```
 
-**Пример:**
+**Примеры:**
 ```
 program.src:10:25: error: Неожиданный символ '@'
 program.src:15:5: error: Незавершенная строковая константа
 program.src:20:12: warning: Неиспользуемая переменная 'temp'
+program.src:25:8: error: отсутствует ';' после return
 ```
 
 ### Типы ошибок
-1. **Синтаксические ошибки** - нарушение правил языка
-2. **Семантические ошибки** - нарушение правил типов и областей видимости
-3. **Ошибки времени компиляции** - статически обнаруживаемые проблемы
-4. **Ошибки препроцессора** - проблемы с макросами и директивами
-5. **Предупреждения** - потенциальные проблемы, не препятствующие компиляции
+1. **Лексические ошибки** - недопустимые символы, незавершенные строки
+2. **Ошибки препроцессора** - проблемы с макросами и директивами
+3. **Синтаксические ошибки** - нарушение правил грамматики
+4. **Семантические ошибки** - нарушение правил типов (в будущем)
 
-## Справочная информация
-
-### Зарезервированные слова
+### Зарезервированные слова (14)
 ```
 if      else    while   for
 int     float   bool    void    string
@@ -851,82 +860,5 @@ struct  fn
 #else     // Альтернативная ветвь условия
 ```
 
-## Приложение: Грамматика в EBNF
-
-### Полная грамматика языка MiniC (включая препроцессор)
-```
-Program         = { PreprocessorDirective | FunctionDef | StructDef } EOF
-
-PreprocessorDirective = "#define" Identifier [ Value ]
-                      | "#undef" Identifier
-                      | "#ifdef" Identifier Block
-                      | "#ifndef" Identifier Block
-                      | "#endif"
-                      | "#else" Block
-
-FunctionDef     = "fn" Identifier "(" [ ParamList ] ")" Block
-ParamList       = Param { "," Param }
-Param           = Type Identifier
-
-StructDef       = "struct" Identifier "{" { FieldDecl } "}"
-FieldDecl       = Type Identifier ";"
-
-Type            = BasicType | StructType
-BasicType       = "int" | "float" | "bool" | "void" | "string"
-StructType      = "struct" Identifier
-
-Block           = "{" { Statement } "}"
-Statement       = VarDecl
-                | ExpressionStmt
-                | IfStmt
-                | WhileStmt
-                | ForStmt
-                | ReturnStmt
-                | Block
-
-VarDecl         = Type Identifier [ "=" Expression ] ";"
-
-ExpressionStmt  = Expression ";"
-
-IfStmt          = "if" "(" Expression ")" Statement [ "else" Statement ]
-WhileStmt       = "while" "(" Expression ")" Statement
-ForStmt         = "for" "(" [ VarDecl | Expression ] ";" 
-                  [ Expression ] ";" [ Expression ] ")" Statement
-ReturnStmt      = "return" [ Expression ] ";"
-
-Expression      = Assignment
-Assignment      = LogicalOr { ("=" | "+=" | "-=" | "*=" | "/=") LogicalOr }
-LogicalOr       = LogicalAnd { "||" LogicalAnd }
-LogicalAnd      = Equality { "&&" Equality }
-Equality        = Comparison { ("==" | "!=") Comparison }
-Comparison      = Additive { ("<" | "<=" | ">" | ">=") Additive }
-Additive        = Multiplicative { ("+" | "-") Multiplicative }
-Multiplicative  = Unary { ("*" | "/" | "%") Unary }
-Unary           = [ "!" | "-" | "+" ] Primary
-Primary         = Literal
-                | Identifier
-                | "(" Expression ")"
-                | FunctionCall
-                | StructAccess
-
-FunctionCall    = Identifier "(" [ ArgList ] ")"
-ArgList         = Expression { "," Expression }
-
-StructAccess    = Primary "." Identifier
-
-Literal         = Integer | Float | String | Boolean
-Integer         = [ "-" ] Digit { Digit }
-Float           = [ "-" ] Digit { Digit } "." Digit { Digit }
-String          = '"' { Character | EscapeSequence } '"'
-Boolean         = "true" | "false"
-Identifier      = Letter { Letter | Digit | "_" }
-Digit           = "0" | "1" | ... | "9"
-Letter          = "A" | "B" | ... | "Z" | "a" | ... | "z"
-EscapeSequence  = "\\" ( "n" | "t" | "r" | "\\" | '"' | "'" )
-```
-
----
-
-**Версия спецификации:** 1.0  
-**Дата последнего обновления:** 05.02.2026
-**Соответствует спринту:** 1 (Лексический анализ + препроцессор)
+**Версия спецификации:** 2.0
+**Дата последнего обновления:** 4.03.2026

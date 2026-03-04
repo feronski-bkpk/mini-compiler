@@ -266,7 +266,7 @@ impl<'a> Scanner<'a> {
             '\r' => {
                 if let Some(&next) = self.chars.peek() {
                     if next == '\n' {
-                        self.chars.next(); // Пропускаем \n
+                        self.chars.next();
                         self.current_position.new_line();
                     } else {
                         self.current_position.advance_column(1);
@@ -401,41 +401,76 @@ impl<'a> Scanner<'a> {
     ///
     /// # Форматы чисел
     ///
-    /// - Целые: `42`, `-100`, `0`
+    /// Валидные:
+    /// - Целые: `0`, `42`, `-10`
     /// - С плавающей точкой: `3.14`, `-0.5`, `123.456`
     ///
-    /// # Возвращает
-    ///
-    /// * `Ok(Token)` - токен числового литерала
-    /// * `Err(LexerError)` - если формат числа некорректен
-    ///
-    /// # Ограничения
-    ///
-    /// - Целые числа: диапазон i32 (`-2³¹` до `2³¹-1`)
-    /// - После точки должна быть хотя бы одна цифра
+    /// Невалидные:
+    /// - `.5` - нет цифры перед точкой
+    /// - `3.` - нет цифры после точки
+    /// - `--5` - несколько минусов
+    /// - числа за пределами i32
     fn scan_number(&mut self) -> LexerResult<Token> {
+        let start_pos = self.start_position;
         let mut is_float = false;
-        let mut has_digit_after_dot = false;
+        let mut has_digits = false;
+        let mut has_minus = false;
 
-        let has_minus = self.current_lexeme == "-";
+        if self.current_lexeme == "-" {
+            has_minus = true;
+        } else if !self.current_lexeme.is_empty() {
+            if self.current_lexeme.chars().next().unwrap().is_ascii_digit() {
+                has_digits = true;
+            }
+        }
 
         while let Some(&c) = self.peek() {
             if c.is_ascii_digit() {
-                self.advance();
-                if is_float {
-                    has_digit_after_dot = true;
-                }
-            } else if c == '.' && !is_float {
-                is_float = true;
+                has_digits = true;
                 self.advance();
             } else {
                 break;
             }
         }
 
-        if is_float && !has_digit_after_dot {
+        if let Some(&c) = self.peek() {
+            if c == '.' {
+                if !has_digits && !has_minus {
+                    return Err(self.error(LexerError::InvalidNumber {
+                        position: start_pos,
+                        lexeme: self.current_lexeme.clone() + ".",
+                    }));
+                }
+
+                is_float = true;
+                self.advance();
+
+                let mut has_digits_after = false;
+                while let Some(&c) = self.peek() {
+                    if c.is_ascii_digit() {
+                        has_digits_after = true;
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+
+                if !has_digits_after {
+                    return Err(self.error(LexerError::InvalidNumber {
+                        position: start_pos,
+                        lexeme: self.current_lexeme.clone(),
+                    }));
+                }
+            }
+        }
+
+        if has_minus && !has_digits && !is_float {
+            return Ok(self.make_token(TokenKind::Minus));
+        }
+
+        if !has_digits && !is_float {
             return Err(self.error(LexerError::InvalidNumber {
-                position: self.start_position,
+                position: start_pos,
                 lexeme: self.current_lexeme.clone(),
             }));
         }
@@ -444,7 +479,7 @@ impl<'a> Scanner<'a> {
             match self.current_lexeme.parse::<f64>() {
                 Ok(value) => Ok(self.make_token(TokenKind::FloatLiteral(value))),
                 Err(_) => Err(self.error(LexerError::InvalidNumber {
-                    position: self.start_position,
+                    position: start_pos,
                     lexeme: self.current_lexeme.clone(),
                 })),
             }
@@ -452,17 +487,18 @@ impl<'a> Scanner<'a> {
             match self.current_lexeme.parse::<i32>() {
                 Ok(value) => Ok(self.make_token(TokenKind::IntLiteral(value))),
                 Err(_) => {
-                    if has_minus {
-                        Err(self.error(LexerError::InvalidNumber {
-                            position: self.start_position,
-                            lexeme: self.current_lexeme.clone(),
-                        }))
-                    } else {
-                        Err(self.error(LexerError::InvalidNumber {
-                            position: self.start_position,
-                            lexeme: self.current_lexeme.clone(),
-                        }))
+                    if let Ok(value) = self.current_lexeme.parse::<i64>() {
+                        if value > i32::MAX as i64 || value < i32::MIN as i64 {
+                            return Err(self.error(LexerError::InvalidNumber {
+                                position: start_pos,
+                                lexeme: self.current_lexeme.clone(),
+                            }));
+                        }
                     }
+                    Err(self.error(LexerError::InvalidNumber {
+                        position: start_pos,
+                        lexeme: self.current_lexeme.clone(),
+                    }))
                 }
             }
         }
@@ -504,11 +540,12 @@ impl<'a> Scanner<'a> {
             "float" => self.make_token(TokenKind::KwFloat),
             "bool" => self.make_token(TokenKind::KwBool),
             "return" => self.make_token(TokenKind::KwReturn),
-            "true" => self.make_token(TokenKind::BoolLiteral(true)),
-            "false" => self.make_token(TokenKind::BoolLiteral(false)),
+            "true" => self.make_token(TokenKind::KwTrue),
+            "false" => self.make_token(TokenKind::KwFalse),
             "void" => self.make_token(TokenKind::KwVoid),
             "struct" => self.make_token(TokenKind::KwStruct),
             "fn" => self.make_token(TokenKind::KwFn),
+            "string" => self.make_token(TokenKind::KwString),
             _ => self.make_token(TokenKind::Identifier(self.current_lexeme.clone())),
         };
 
@@ -585,6 +622,20 @@ impl<'a> Scanner<'a> {
             ';' => Ok(self.make_token(TokenKind::Semicolon)),
             ',' => Ok(self.make_token(TokenKind::Comma)),
             ':' => Ok(self.make_token(TokenKind::Colon)),
+            '.' => {
+                if let Some(&next_char) = self.peek() {
+                    if next_char.is_ascii_digit() {
+                        Err(self.error(LexerError::InvalidNumber {
+                            position: self.start_position,
+                            lexeme: ".".to_string() + &next_char.to_string(),
+                        }))
+                    } else {
+                        Ok(self.make_token(TokenKind::Dot))
+                    }
+                } else {
+                    Ok(self.make_token(TokenKind::Dot))
+                }
+            }
 
             '+' => {
                 if self.matches('=') {
@@ -595,7 +646,12 @@ impl<'a> Scanner<'a> {
             }
             '-' => {
                 if let Some(&next_char) = self.peek() {
-                    if next_char.is_ascii_digit() {
+                    if next_char == '>' {
+                        self.advance();
+                        Ok(self.make_token(TokenKind::Arrow))
+                    } else if next_char.is_ascii_digit() {
+                        self.scan_number()
+                    } else if next_char == '.' {
                         self.scan_number()
                     } else if self.matches('=') {
                         Ok(self.make_token(TokenKind::MinusEq))
@@ -816,5 +872,61 @@ mod tests {
             Ok(token) => println!("next_token вернул: {:?}", token.kind),
             Err(e) => println!("next_token ошибка: {}", e),
         }
+    }
+
+    #[test]
+    fn test_dot_operator() {
+        let source = "p.x";
+        let mut scanner = Scanner::new(source);
+        let mut tokens = Vec::new();
+
+        loop {
+            match scanner.next_token() {
+                Ok(token) => {
+                    let is_eof = token.is_eof();
+                    tokens.push(token);
+                    if is_eof {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    panic!("Ошибка при сканировании: {}", e);
+                }
+            }
+        }
+
+        assert_eq!(tokens.len(), 4);
+        assert_eq!(tokens[0].lexeme, "p");
+        assert!(matches!(tokens[0].kind, TokenKind::Identifier(_)));
+        assert_eq!(tokens[1].lexeme, ".");
+        assert!(matches!(tokens[1].kind, TokenKind::Dot));
+        assert_eq!(tokens[2].lexeme, "x");
+        assert!(matches!(tokens[2].kind, TokenKind::Identifier(_)));
+    }
+
+    #[test]
+    fn test_arrow_operator() {
+        let source = "->";
+        let mut scanner = Scanner::new(source);
+        let mut tokens = Vec::new();
+
+        loop {
+            match scanner.next_token() {
+                Ok(token) => {
+                    let is_eof = token.is_eof();
+                    tokens.push(token);
+                    if is_eof {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    panic!("Ошибка при сканировании: {}", e);
+                }
+            }
+        }
+
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].lexeme, "->");
+        assert!(matches!(tokens[0].kind, TokenKind::Arrow));
     }
 }

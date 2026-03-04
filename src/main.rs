@@ -2,6 +2,7 @@
 //!
 //! Предоставляет командную строку для работы с компилятором:
 //! - Лексический анализ исходного кода
+//! - Синтаксический анализ и построение AST
 //! - Тестирование и валидация
 //! - Генерация документации
 //!
@@ -13,8 +14,10 @@
 //! # Лексический анализ файла
 //! minic lex --input program.src
 //!
-//! # Лексический анализ с выводом в файл
-//! minic lex --input program.src --output tokens.txt
+//! # Синтаксический анализ с выводом AST
+//! minic parse --input program.src --ast-format text
+//! minic parse --input program.src --ast-format dot --output ast.dot
+//! minic parse --input program.src --ast-format json --output ast.json
 //!
 //! # Интерактивный режим
 //! minic lex --interactive
@@ -28,56 +31,10 @@
 //! # Генерация документации
 //! minic docs
 //! ```
-//!
-//! ## Примеры использования
-//!
-//! ```bash
-//! # Анализ примера программы
-//! minic lex --input examples/hello.src --verbose
-//!
-//! # Проверка всех примеров
-//! for file in examples/*.src; do
-//!     echo "Проверка $file"
-//!     minic check --input "$file"
-//! done
-//!
-//! # Интерактивная сессия
-//! minic lex --interactive
-//! > fn main() { return 42; }
-//! > Ctrl+D
-//! ```
-//!
-//! # Форматы вывода
-//!
-//! ## Текстовый формат (по умолчанию)
-//! ```
-//! 1:1 KW_FN "fn"
-//! 1:4 IDENTIFIER "main"
-//! 1:8 LPAREN "("
-//! 1:9 RPAREN ")"
-//! 1:10 LBRACE "{"
-//! 1:12 KW_RETURN "return"
-//! 1:19 INT_LITERAL "42" 42
-//! 1:21 SEMICOLON ";"
-//! 1:23 RBRACE "}"
-//! 2:1 END_OF_FILE ""
-//! ```
-//!
-//! ## JSON формат
-//! ```bash
-//! minic lex --input program.src --format json
-//! ```
-//!
-//! # Коды возврата
-//!
-//! - 0: Успешное выполнение
-//! - 1: Ошибка ввода-вывода
-//! - 2: Ошибка лексического анализа
-//! - 3: Ошибка аргументов командной строки
-//! - 4: Внутренняя ошибка
 
 use clap::{Parser, Subcommand, ValueEnum};
 use minic::lexer::LexerErrorExt;
+use minic::parser::{DotGenerator, JsonGenerator, PrettyPrinter};
 use minic::preprocessor::Preprocessor;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -95,6 +52,17 @@ enum OutputFormat {
     Minimal,
     /// Подробный формат с отладочной информацией
     Verbose,
+}
+
+/// Форматы вывода AST.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum AstFormat {
+    /// Человекочитаемый текстовый формат
+    Text,
+    /// Graphviz DOT формат для визуализации
+    Dot,
+    /// JSON формат для машинной обработки
+    Json,
 }
 
 /// CLI интерфейс Mini Compiler.
@@ -146,6 +114,29 @@ enum Commands {
         fail_fast: bool,
     },
 
+    /// Выполнить синтаксический анализ и построить AST
+    Parse {
+        /// Входной файл с исходным кодом
+        #[arg(short, long)]
+        input: PathBuf,
+
+        /// Выходной файл для AST
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Формат вывода AST
+        #[arg(long, value_enum, default_value_t = AstFormat::Text)]
+        ast_format: AstFormat,
+
+        /// Определить макросы для препроцессора
+        #[arg(short = 'D', long)]
+        defines: Vec<String>,
+
+        /// Применить препроцессор перед парсингом
+        #[arg(long)]
+        preprocess: bool,
+    },
+
     /// Проверить синтаксис исходного кода
     Check {
         /// Входной файл с исходным кодом
@@ -155,6 +146,14 @@ enum Commands {
         /// Строгий режим (любая ошибка = failure)
         #[arg(short, long)]
         strict: bool,
+
+        /// Определить макросы для препроцессора
+        #[arg(short = 'D', long)]
+        defines: Vec<String>,
+
+        /// Применить препроцессор перед проверкой
+        #[arg(long)]
+        preprocess: bool,
     },
 
     /// Запустить тесты
@@ -215,7 +214,7 @@ enum Commands {
         show: bool,
     },
 
-    /// Полный пайплайн: препроцессор + лексический анализ
+    /// Полный пайплайн: препроцессор + лексический анализ + синтаксический анализ
     Full {
         /// Входной файл
         #[arg(short, long)]
@@ -225,9 +224,13 @@ enum Commands {
         #[arg(short = 'D', long)]
         defines: Vec<String>,
 
-        /// Формат вывода
-        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-        format: OutputFormat,
+        /// Формат вывода AST
+        #[arg(long, value_enum, default_value_t = AstFormat::Text)]
+        ast_format: AstFormat,
+
+        /// Выходной файл для AST
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -251,7 +254,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cli.verbose,
         ),
 
-        Commands::Check { input, strict } => handle_check_command(&input, strict, cli.verbose),
+        Commands::Parse {
+            input,
+            output,
+            ast_format,
+            defines,
+            preprocess,
+        } => handle_parse_command(&input, output, ast_format, defines, preprocess, cli.verbose),
+
+        Commands::Check {
+            input,
+            strict,
+            defines,
+            preprocess,
+        } => handle_check_command(&input, strict, defines, preprocess, cli.verbose),
 
         Commands::Test {
             unit,
@@ -277,8 +293,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Full {
             input,
             defines,
-            format,
-        } => handle_full_command(&input, defines, format, cli.verbose),
+            ast_format,
+            output,
+        } => handle_full_command(&input, defines, ast_format, output, cli.verbose),
     }
 }
 
@@ -354,10 +371,87 @@ fn handle_lex_command(
     }
 }
 
+/// Обрабатывает команду синтаксического анализа.
+fn handle_parse_command(
+    input: &Path,
+    output: Option<PathBuf>,
+    ast_format: AstFormat,
+    defines: Vec<String>,
+    preprocess: bool,
+    verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if verbose {
+        println!("Синтаксический анализ файла: {}", input.display());
+    }
+
+    let source = utils::read_file_with_limit(input)?;
+
+    let parse_output = if preprocess {
+        let defines_vec: Vec<(&str, &str)> = defines
+            .iter()
+            .filter_map(|d| {
+                let parts: Vec<&str> = d.splitn(2, '=').collect();
+                if parts.len() == 2 {
+                    Some((parts[0], parts[1]))
+                } else {
+                    Some((d.as_str(), ""))
+                }
+            })
+            .collect();
+
+        compiler::compile(&source, defines_vec)
+    } else {
+        compiler::syntactic_analysis(&source)
+    };
+
+    if parse_output.has_errors() {
+        eprintln!("Найдено ошибок: {}", parse_output.errors.len());
+        for error in &parse_output.errors.errors {
+            eprintln!("  {}", error);
+        }
+    }
+
+    if let Some(ast) = &parse_output.ast {
+        let output_text = match ast_format {
+            AstFormat::Text => {
+                let mut printer = PrettyPrinter::new();
+                printer.format_program(ast)
+            }
+            AstFormat::Dot => {
+                let mut generator = DotGenerator::new();
+                generator.generate(ast)
+            }
+            AstFormat::Json => {
+                let mut generator = JsonGenerator::new();
+                generator.to_string_pretty(ast)
+            }
+        };
+
+        if let Some(output_path) = output {
+            utils::write_file(&output_path, &output_text)?;
+            if verbose {
+                println!("AST записан в: {}", output_path.display());
+            }
+        } else {
+            print!("{}", output_text);
+        }
+
+        if parse_output.is_valid() {
+            Ok(())
+        } else {
+            Err("Обнаружены ошибки синтаксического анализа".into())
+        }
+    } else {
+        Err("Не удалось построить AST".into())
+    }
+}
+
 /// Обрабатывает команду проверки синтаксиса.
 fn handle_check_command(
     input: &Path,
     strict: bool,
+    defines: Vec<String>,
+    preprocess: bool,
     verbose: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if verbose {
@@ -365,14 +459,31 @@ fn handle_check_command(
     }
 
     let source = utils::read_file_with_limit(input)?;
-    let (tokens, errors) = compiler::lexical_analysis(&source);
 
-    if errors.is_empty() {
-        println!("✓ Файл корректен. Найдено {} токенов.", tokens.len());
+    let parse_output = if preprocess {
+        let defines_vec: Vec<(&str, &str)> = defines
+            .iter()
+            .filter_map(|d| {
+                let parts: Vec<&str> = d.splitn(2, '=').collect();
+                if parts.len() == 2 {
+                    Some((parts[0], parts[1]))
+                } else {
+                    Some((d.as_str(), ""))
+                }
+            })
+            .collect();
+
+        compiler::compile(&source, defines_vec)
+    } else {
+        compiler::syntactic_analysis(&source)
+    };
+
+    if parse_output.is_valid() {
+        println!("✓ Файл синтаксически корректен.");
         Ok(())
     } else {
-        eprintln!("✗ Найдено {} ошибок:", errors.len());
-        for error in errors {
+        eprintln!("✗ Найдено {} ошибок:", parse_output.errors.len());
+        for error in &parse_output.errors.errors {
             eprintln!("  • {}", error);
         }
 
@@ -382,6 +493,86 @@ fn handle_check_command(
             eprintln!("Предупреждение: файл содержит ошибки, но проверка продолжена.");
             Ok(())
         }
+    }
+}
+
+/// Обрабатывает команду полного пайплайна
+fn handle_full_command(
+    input: &Path,
+    defines: Vec<String>,
+    ast_format: AstFormat,
+    output: Option<PathBuf>,
+    verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if verbose {
+        println!("Запуск полного пайплайна для файла: {}", input.display());
+        if !defines.is_empty() {
+            println!("Макросы: {:?}", defines);
+        }
+    }
+
+    let source = utils::read_file_with_limit(input)?;
+
+    let defines_vec: Vec<(&str, &str)> = defines
+        .iter()
+        .filter_map(|d| {
+            let parts: Vec<&str> = d.splitn(2, '=').collect();
+            if parts.len() == 2 {
+                Some((parts[0], parts[1]))
+            } else {
+                Some((d.as_str(), ""))
+            }
+        })
+        .collect();
+
+    let parse_output = compiler::compile(&source, defines_vec);
+
+    if verbose {
+        if parse_output.has_errors() {
+            println!("Обнаружено ошибок: {}", parse_output.errors.len());
+        }
+        if parse_output.ast.is_some() {
+            println!("AST построен успешно");
+        }
+    }
+
+    if parse_output.has_errors() {
+        eprintln!("Найдено ошибок: {}", parse_output.errors.len());
+        for error in &parse_output.errors.errors {
+            eprintln!("  {}", error);
+        }
+    }
+
+    if let Some(ast) = &parse_output.ast {
+        let output_text = match ast_format {
+            AstFormat::Text => {
+                let mut printer = PrettyPrinter::new();
+                printer.format_program(ast)
+            }
+            AstFormat::Dot => {
+                let mut generator = DotGenerator::new();
+                generator.generate(ast)
+            }
+            AstFormat::Json => {
+                let mut generator = JsonGenerator::new();
+                generator.to_string_pretty(ast)
+            }
+        };
+
+        if let Some(output_path) = output {
+            utils::write_file(&output_path, &output_text)?;
+            if verbose {
+                println!("Результат записан в: {}", output_path.display());
+            }
+        } else {
+            print!("{}", output_text);
+        }
+    }
+
+    if parse_output.is_valid() {
+        Ok(())
+    } else {
+        Err("Обнаружены ошибки в процессе компиляции".into())
     }
 }
 
@@ -401,13 +592,35 @@ fn handle_test_command(
         }
     }
 
-    println!("Тестирование запускается через cargo test...");
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("test");
 
-    let test_args = build_test_args(unit, integration, coverage, test_file);
+    if unit && !integration {
+        cmd.arg("--lib");
+    } else if integration && !unit {
+        cmd.arg("--tests");
+    }
 
-    println!("Выполняется: cargo test {}", test_args.join(" "));
+    if coverage {
+        cmd.arg("--coverage");
+    }
 
-    Ok(())
+    if let Some(file) = test_file {
+        cmd.arg("--");
+        cmd.arg(file);
+    }
+
+    if verbose {
+        println!("Выполняется: {:?}", cmd);
+    }
+
+    let status = cmd.status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Тесты не пройдены".into())
+    }
 }
 
 /// Обрабатывает команду генерации документации.
@@ -420,13 +633,21 @@ fn handle_docs_command(
         println!("Генерация документации в: {}", output.display());
     }
 
-    println!("Документация генерируется через cargo doc...");
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("doc");
+    cmd.arg("--no-deps");
 
     if open {
-        println!("Документация будет открыта в браузере.");
+        cmd.arg("--open");
     }
 
-    Ok(())
+    let status = cmd.status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Ошибка при генерации документации".into())
+    }
 }
 
 /// Обрабатывает команду показа информации.
@@ -439,18 +660,26 @@ fn handle_info_command(verbose: bool) -> Result<(), Box<dyn std::error::Error>> 
 
     if verbose {
         println!("Поддерживаемые команды:");
-        println!("  lex      - Лексический анализ исходного кода");
-        println!("  check    - Проверка синтаксиса");
-        println!("  test     - Запуск тестов");
-        println!("  docs     - Генерация документации");
-        println!("  info     - Информация о компиляторе");
-        println!("  spec     - Спецификация языка");
+        println!("  lex       - Лексический анализ исходного кода");
+        println!("  parse     - Синтаксический анализ и построение AST");
+        println!("  check     - Проверка синтаксиса");
+        println!("  test      - Запуск тестов");
+        println!("  docs      - Генерация документации");
+        println!("  preprocess- Обработка препроцессором");
+        println!("  full      - Полный пайплайн компиляции");
+        println!("  info      - Информация о компиляторе");
+        println!("  spec      - Спецификация языка");
         println!();
         println!("Форматы вывода:");
-        println!("  text     - Текстовый формат (по умолчанию)");
-        println!("  json     - JSON формат");
-        println!("  minimal  - Только ошибки");
-        println!("  verbose  - Подробный вывод");
+        println!("  text      - Текстовый формат (по умолчанию)");
+        println!("  json      - JSON формат");
+        println!("  minimal   - Только ошибки");
+        println!("  verbose   - Подробный вывод");
+        println!();
+        println!("Форматы AST:");
+        println!("  text      - Человекочитаемый текст");
+        println!("  dot       - Graphviz DOT для визуализации");
+        println!("  json      - JSON для машинной обработки");
     }
 
     Ok(())
@@ -472,6 +701,67 @@ fn handle_spec_command(verbose: bool) -> Result<(), Box<dyn std::error::Error>> 
     } else {
         eprintln!("Файл спецификации не найден: {}", spec_path.display());
         eprintln!("Создайте файл docs/language_spec.md со спецификацией языка.");
+
+        // Показываем путь к docs/
+        if verbose {
+            println!("\nСодержимое директории docs/:");
+            if let Ok(entries) = fs::read_dir("docs") {
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        println!("  {}", entry.path().display());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Обрабатывает команду препроцессора
+fn handle_preprocess_command(
+    input: &Path,
+    output: Option<PathBuf>,
+    defines: Vec<String>,
+    preserve_lines: bool,
+    show: bool,
+    verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if verbose {
+        println!("Препроцессирование файла: {}", input.display());
+        if !defines.is_empty() {
+            println!("Макросы: {:?}", defines);
+        }
+    }
+
+    let source = utils::read_file_with_limit(input)?;
+    let mut preprocessor = Preprocessor::new(&source);
+    preprocessor.preserve_line_numbers(preserve_lines);
+
+    for define in defines {
+        let parts: Vec<&str> = define.splitn(2, '=').collect();
+        if parts.len() == 2 {
+            preprocessor.define(parts[0], parts[1])?;
+        } else {
+            preprocessor.define(&define, "")?;
+        }
+    }
+
+    let processed = preprocessor.process()?;
+
+    if show {
+        println!("=== РЕЗУЛЬТАТ ПРЕПРОЦЕССОРА ===");
+        println!("{}", processed);
+        println!("================================");
+    }
+
+    if let Some(output_path) = output {
+        utils::write_file(&output_path, &processed)?;
+        if verbose {
+            println!("Результат записан в: {}", output_path.display());
+        }
+    } else if !show {
+        print!("{}", processed);
     }
 
     Ok(())
@@ -635,126 +925,4 @@ fn format_verbose_output(
     output.push_str(&format!("  Разделители: {}\n", delimiters));
 
     output
-}
-
-/// Строит аргументы для команды тестирования.
-fn build_test_args(
-    unit: bool,
-    integration: bool,
-    coverage: bool,
-    test_file: Option<String>,
-) -> Vec<String> {
-    let mut args = Vec::new();
-
-    if unit && !integration {
-        args.push("--lib".to_string());
-    } else if integration && !unit {
-        args.push("--tests".to_string());
-    }
-
-    if coverage {
-        args.push("--coverage".to_string());
-    }
-
-    if let Some(file) = test_file {
-        args.push(file);
-    }
-
-    args
-}
-
-fn handle_preprocess_command(
-    input: &Path,
-    output: Option<PathBuf>,
-    defines: Vec<String>,
-    preserve_lines: bool,
-    show: bool,
-    verbose: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if verbose {
-        println!("Препроцессирование файла: {}", input.display());
-    }
-
-    let source = utils::read_file_with_limit(input)?;
-    let mut preprocessor = Preprocessor::new(&source);
-    preprocessor.preserve_line_numbers(preserve_lines);
-
-    for define in defines {
-        let parts: Vec<&str> = define.splitn(2, '=').collect();
-        if parts.len() == 2 {
-            preprocessor.define(parts[0], parts[1])?;
-        } else {
-            preprocessor.define(&define, "")?;
-        }
-    }
-
-    let processed = preprocessor.process()?;
-
-    if show {
-        println!("=== РЕЗУЛЬТАТ ПРЕПРОЦЕССОРА ===");
-        println!("{}", processed);
-        println!("================================");
-    }
-
-    if let Some(output_path) = output {
-        utils::write_file(&output_path, &processed)?;
-        if verbose {
-            println!("Результат записан в: {}", output_path.display());
-        }
-    } else if !show {
-        print!("{}", processed);
-    }
-
-    Ok(())
-}
-
-/// Обрабатывает команду полного пайплайна
-fn handle_full_command(
-    input: &Path,
-    defines: Vec<String>,
-    format: OutputFormat,
-    verbose: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if verbose {
-        println!("Запуск полного пайплайна для файла: {}", input.display());
-    }
-
-    let source = utils::read_file_with_limit(input)?;
-
-    let mut preprocessor = Preprocessor::new(&source);
-    for define in defines {
-        let parts: Vec<&str> = define.splitn(2, '=').collect();
-        if parts.len() == 2 {
-            preprocessor.define(parts[0], parts[1])?;
-        } else {
-            preprocessor.define(&define, "")?;
-        }
-    }
-
-    let processed = preprocessor.process()?;
-
-    if verbose {
-        println!(
-            "Препроцессирование завершено, длина результата: {} символов",
-            processed.len()
-        );
-    }
-
-    let mut scanner = Scanner::new(&processed);
-    let (tokens, errors) = scanner.scan_all();
-
-    let output_text = match format {
-        OutputFormat::Text => format_text_output(&tokens, &errors, false, verbose),
-        OutputFormat::Json => format_json_output(&tokens, &errors)?,
-        OutputFormat::Minimal => format_minimal_output(&errors),
-        OutputFormat::Verbose => format_verbose_output(&tokens, &errors, &scanner),
-    };
-
-    println!("{}", output_text);
-
-    if !errors.is_empty() {
-        Err("Обнаружены ошибки лексического анализа".into())
-    } else {
-        Ok(())
-    }
 }

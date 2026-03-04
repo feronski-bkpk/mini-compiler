@@ -1,0 +1,35 @@
+fn main() {
+    int sum = 0;
+    
+    // Полный for
+    for (int i = 0; i < 10; i = i + 1) {
+        sum = sum + i;
+    }
+    
+    // For без инициализации
+    int j = 0;
+    for (; j < 5; j = j + 1) {
+        sum = sum + j;
+    }
+    
+    // For без условия
+    for (int k = 0;; k = k + 1) {
+        if (k >= 3) {
+            break;
+        }
+        sum = sum + k;
+    }
+    
+    // For без обновления
+    for (int m = 0; m < 4;) {
+        sum = sum + m;
+        m = m + 1;
+    }
+    
+    // Пустой for
+    for (;;) {
+        break;
+    }
+    
+    return sum;
+}

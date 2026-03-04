@@ -1,0 +1,22 @@
+fn main() {
+    int i = 0;
+    int sum = 0;
+    
+    // Простой while
+    while (i < 10) {
+        sum = sum + i;
+        i = i + 1;
+    }
+    
+    // While с break
+    i = 0;
+    while (true) {
+        if (i >= 5) {
+            break;
+        }
+        sum = sum + i;
+        i = i + 1;
+    }
+    
+    return sum;
+}

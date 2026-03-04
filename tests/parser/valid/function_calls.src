@@ -1,0 +1,27 @@
+fn foo() -> int {
+    return 1;
+}
+
+fn bar(int x) -> int {
+    return x * 2;
+}
+
+fn baz(int x, int y) -> int {
+    return x + y;
+}
+
+fn nested() -> int {
+    return bar(baz(foo(), 2));
+}
+
+fn main() {
+    int a = foo();
+    int b = bar(5);
+    int c = baz(3, 4);
+    int d = nested();
+    
+    // Вызов в выражении
+    int e = bar(baz(foo(), bar(2)));
+    
+    return a + b + c + d + e;
+}

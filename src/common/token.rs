@@ -72,6 +72,8 @@ pub enum TokenKind {
     KwStruct,
     /// `fn` - определение функции
     KwFn,
+    /// `string` - строковый тип
+    KwString,
 
     /// Идентификатор (имя переменной, функции и т.д.)
     ///
@@ -121,6 +123,8 @@ pub enum TokenKind {
     Gt,
     /// Больше или равно: `>=`
     GtEq,
+    /// `->` - стрелка для указания возвращаемого типа
+    Arrow,
 
     /// Логическое И: `&&`
     AmpAmp,
@@ -158,6 +162,8 @@ pub enum TokenKind {
     Comma,
     /// Двоеточие: `:`
     Colon,
+    /// `.` - точка для доступа к полям структур
+    Dot,
 
     /// Маркер конца файла
     ///
@@ -512,6 +518,9 @@ pub fn token_type_name(kind: &TokenKind) -> &'static str {
         TokenKind::Comma => "COMMA",
         TokenKind::Colon => "COLON",
         TokenKind::EndOfFile => "END_OF_FILE",
+        TokenKind::KwString => "KW_STRING",
+        TokenKind::Arrow => "ARROW",
+        TokenKind::Dot => "DOT",
     }
 }
 

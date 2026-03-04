@@ -1,0 +1,24 @@
+Program [line 1]:
+  StructDecl: Point [line 1]:
+    Fields:
+      VarDecl: int x
+      VarDecl: int y
+  
+  StructDecl: Rectangle [line 6]:
+    Fields:
+      VarDecl: struct Point top_left
+      VarDecl: struct Point bottom_right
+      VarDecl: float area
+      VarDecl: bool visible
+  
+  FunctionDecl: main -> void [line 12]:
+    Parameters: []
+    Body [line 12]:
+      Block [line 13-19]:
+        VarDecl: struct Point p
+        Expr: p.x = 10
+        Expr: p.y = 20
+        VarDecl: struct Rectangle r
+        Expr: r.top_left = p
+        Expr: r.visible = true
+        Return: 0

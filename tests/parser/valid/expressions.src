@@ -1,0 +1,38 @@
+fn test_expressions(int a, int b, int c, bool flag) -> int {
+    int result;
+    
+    // Арифметика
+    result = a + b * c;
+    result = (a + b) * c;
+    result = a * b / c % 2;
+    result = -a + +b;
+    
+    // Сравнения
+    bool cmp1 = a < b;
+    bool cmp2 = a <= b;
+    bool cmp3 = a > b;
+    bool cmp4 = a >= b;
+    bool cmp5 = a == b;
+    bool cmp6 = a != b;
+    
+    // Логика
+    bool log1 = flag && (a > 0);
+    bool log2 = flag || (b < 0);
+    bool log3 = !flag;
+    bool log4 = !(a > b) && flag || (c == 0);
+    
+    // Составные присваивания
+    a += 5;
+    b -= 3;
+    c *= 2;
+    a /= 4;
+    
+    // Цепочка присваиваний
+    a = b = c = 0;
+    
+    return result;
+}
+
+fn main() {
+    return test_expressions(1, 2, 3, true);
+}
