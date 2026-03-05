@@ -3,8 +3,9 @@
 //! Предоставляет командную строку для работы с компилятором:
 //! - Лексический анализ исходного кода
 //! - Синтаксический анализ и построение AST
-//! - Тестирование и валидация
-//! - Генерация документации
+//! - Препроцессор с макросами
+//! - LL(1) анализ грамматики
+//! - Метрики ошибок и восстановление
 //!
 //! # Команды
 //!
@@ -19,8 +20,15 @@
 //! minic parse --input program.src --ast-format dot --output ast.dot
 //! minic parse --input program.src --ast-format json --output ast.json
 //!
-//! # Интерактивный режим
-//! minic lex --interactive
+//! # Препроцессор
+//! minic preprocess --input program.src --output processed.src --show
+//! minic preprocess --input program.src --defines "DEBUG=1" "VERSION=2"
+//!
+//! # Полный пайплайн
+//! minic full --input program.src --ast-format dot --output ast.dot
+//!
+//! # LL(1) анализ грамматики
+//! minic ll1 --grammar docs/grammar.md
 //!
 //! # Проверка синтаксиса
 //! minic check --input program.src
@@ -135,6 +143,10 @@ enum Commands {
         /// Применить препроцессор перед парсингом
         #[arg(long)]
         preprocess: bool,
+
+        /// Показать метрики ошибок
+        #[arg(long)]
+        show_metrics: bool,
     },
 
     /// Проверить синтаксис исходного кода
@@ -165,6 +177,10 @@ enum Commands {
         /// Запускать только интеграционные тесты
         #[arg(long)]
         integration: bool,
+
+        /// Запускать LL(1) тесты
+        #[arg(long)]
+        ll1: bool,
 
         /// Сгенерировать отчет о покрытии
         #[arg(long)]
@@ -231,7 +247,40 @@ enum Commands {
         /// Выходной файл для AST
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Показать метрики ошибок
+        #[arg(long)]
+        show_metrics: bool,
     },
+
+    /// Выполнить LL(1) анализ грамматики
+    Ll1 {
+        /// Файл с грамматикой (опционально)
+        #[arg(short, long)]
+        grammar: Option<PathBuf>,
+
+        /// Показать First множества
+        #[arg(long)]
+        show_first: bool,
+
+        /// Показать Follow множества
+        #[arg(long)]
+        show_follow: bool,
+    },
+
+    /// Демонстрация восстановления после ошибок
+    ErrorDemo {
+        /// Входной файл с ошибками
+        #[arg(short, long)]
+        input: PathBuf,
+
+        /// Максимальное количество ошибок
+        #[arg(long, default_value_t = 50)]
+        max_errors: usize,
+    },
+
+    /// Демонстрация инкрементов/декрементов
+    IncDemo,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -260,7 +309,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ast_format,
             defines,
             preprocess,
-        } => handle_parse_command(&input, output, ast_format, defines, preprocess, cli.verbose),
+            show_metrics,
+        } => handle_parse_command(
+            &input,
+            output,
+            ast_format,
+            defines,
+            preprocess,
+            show_metrics,
+            cli.verbose,
+        ),
 
         Commands::Check {
             input,
@@ -272,9 +330,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Test {
             unit,
             integration,
+            ll1,
             coverage,
             test_file,
-        } => handle_test_command(unit, integration, coverage, test_file, cli.verbose),
+        } => handle_test_command(unit, integration, ll1, coverage, test_file, cli.verbose),
 
         Commands::Docs { open, output } => handle_docs_command(open, &output, cli.verbose),
 
@@ -295,7 +354,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             defines,
             ast_format,
             output,
-        } => handle_full_command(&input, defines, ast_format, output, cli.verbose),
+            show_metrics,
+        } => handle_full_command(
+            &input,
+            defines,
+            ast_format,
+            output,
+            show_metrics,
+            cli.verbose,
+        ),
+
+        Commands::Ll1 {
+            grammar,
+            show_first,
+            show_follow,
+        } => handle_ll1_command(grammar, show_first, show_follow, cli.verbose),
+
+        Commands::ErrorDemo { input, max_errors } => {
+            handle_error_demo(&input, max_errors, cli.verbose)
+        }
+
+        Commands::IncDemo => handle_inc_demo(cli.verbose),
     }
 }
 
@@ -378,10 +457,17 @@ fn handle_parse_command(
     ast_format: AstFormat,
     defines: Vec<String>,
     preprocess: bool,
+    show_metrics: bool,
     verbose: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if verbose {
         println!("Синтаксический анализ файла: {}", input.display());
+        if preprocess {
+            println!("Препроцессор включен");
+        }
+        if !defines.is_empty() {
+            println!("Макросы: {:?}", defines);
+        }
     }
 
     let source = utils::read_file_with_limit(input)?;
@@ -409,6 +495,13 @@ fn handle_parse_command(
         for error in &parse_output.errors.errors {
             eprintln!("  {}", error);
         }
+    } else if verbose {
+        println!("Ошибок не найдено");
+    }
+
+    if show_metrics && parse_output.has_errors() {
+        println!("\nМетрики ошибок:");
+        println!("{}", parse_output.errors.metrics);
     }
 
     if let Some(ast) = &parse_output.ast {
@@ -433,7 +526,7 @@ fn handle_parse_command(
                 println!("AST записан в: {}", output_path.display());
             }
         } else {
-            print!("{}", output_text);
+            println!("{}", output_text);
         }
 
         if parse_output.is_valid() {
@@ -479,10 +572,10 @@ fn handle_check_command(
     };
 
     if parse_output.is_valid() {
-        println!("✓ Файл синтаксически корректен.");
+        println!("Файл синтаксически корректен.");
         Ok(())
     } else {
-        eprintln!("✗ Найдено {} ошибок:", parse_output.errors.len());
+        eprintln!("Найдено {} ошибок:", parse_output.errors.len());
         for error in &parse_output.errors.errors {
             eprintln!("  • {}", error);
         }
@@ -502,6 +595,7 @@ fn handle_full_command(
     defines: Vec<String>,
     ast_format: AstFormat,
     output: Option<PathBuf>,
+    show_metrics: bool,
     verbose: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if verbose {
@@ -511,6 +605,7 @@ fn handle_full_command(
         }
     }
 
+    println!("Шаг 1: Препроцессор...");
     let source = utils::read_file_with_limit(input)?;
 
     let defines_vec: Vec<(&str, &str)> = defines
@@ -528,19 +623,22 @@ fn handle_full_command(
     let parse_output = compiler::compile(&source, defines_vec);
 
     if verbose {
-        if parse_output.has_errors() {
-            println!("Обнаружено ошибок: {}", parse_output.errors.len());
-        }
-        if parse_output.ast.is_some() {
-            println!("AST построен успешно");
-        }
+        println!("Шаг 2: Лексический анализ...");
+        println!("Шаг 3: Синтаксический анализ...");
     }
 
     if parse_output.has_errors() {
-        eprintln!("Найдено ошибок: {}", parse_output.errors.len());
+        eprintln!("\nНайдено ошибок: {}", parse_output.errors.len());
         for error in &parse_output.errors.errors {
             eprintln!("  {}", error);
         }
+    } else if verbose {
+        println!("Ошибок не найдено");
+    }
+
+    if show_metrics && parse_output.has_errors() {
+        println!("\nМетрики ошибок:");
+        println!("{}", parse_output.errors.metrics);
     }
 
     if let Some(ast) = &parse_output.ast {
@@ -565,13 +663,15 @@ fn handle_full_command(
                 println!("Результат записан в: {}", output_path.display());
             }
         } else {
-            print!("{}", output_text);
+            println!("\nAST:\n{}", output_text);
         }
     }
 
     if parse_output.is_valid() {
+        println!("\nПолный пайплайн завершен успешно!");
         Ok(())
     } else {
+        println!("\nПолный пайплайн завершен с ошибками");
         Err("Обнаружены ошибки в процессе компиляции".into())
     }
 }
@@ -580,28 +680,36 @@ fn handle_full_command(
 fn handle_test_command(
     unit: bool,
     integration: bool,
+    ll1: bool,
     coverage: bool,
     test_file: Option<String>,
     verbose: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if verbose {
         println!("Запуск тестов...");
-
+        if ll1 {
+            println!("Включая LL(1) тесты");
+        }
         if coverage {
-            println!("Внимание: отчет о покрытии требует установки cargo-tarpaulin");
+            println!("Отчет о покрытии будет сгенерирован");
         }
     }
 
     let mut cmd = std::process::Command::new("cargo");
     cmd.arg("test");
 
-    if unit && !integration {
+    if unit && !integration && !ll1 {
         cmd.arg("--lib");
-    } else if integration && !unit {
+    } else if integration && !unit && !ll1 {
         cmd.arg("--tests");
+    } else if ll1 && !unit && !integration {
+        cmd.arg("--test").arg("ll1_tests");
     }
 
     if coverage {
+        if verbose {
+            println!("Для отчета о покрытии требуется cargo-tarpaulin");
+        }
         cmd.arg("--coverage");
     }
 
@@ -617,10 +725,244 @@ fn handle_test_command(
     let status = cmd.status()?;
 
     if status.success() {
+        println!("Все тесты пройдены!");
         Ok(())
     } else {
         Err("Тесты не пройдены".into())
     }
+}
+
+/// Обрабатывает команду LL(1) анализа
+fn handle_ll1_command(
+    grammar: Option<PathBuf>,
+    show_first: bool,
+    show_follow: bool,
+    verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use minic::parser::ll1::{FirstFollowCalculator, GrammarSymbol, Production};
+
+    println!("LL(1) анализ грамматики");
+
+    if let Some(grammar_path) = grammar {
+        if verbose {
+            println!("Чтение грамматики из: {}", grammar_path.display());
+        }
+        // Здесь можно добавить парсинг грамматики из файла
+        println!("Функция в разработке");
+    } else {
+        // Демонстрационная грамматика выражений
+        let productions = vec![
+            Production {
+                left: "E".to_string(),
+                right: vec![
+                    GrammarSymbol::NonTerminal("T".to_string()),
+                    GrammarSymbol::NonTerminal("E'".to_string()),
+                ],
+            },
+            Production {
+                left: "E'".to_string(),
+                right: vec![
+                    GrammarSymbol::Terminal("+".to_string()),
+                    GrammarSymbol::NonTerminal("T".to_string()),
+                    GrammarSymbol::NonTerminal("E'".to_string()),
+                ],
+            },
+            Production {
+                left: "E'".to_string(),
+                right: vec![GrammarSymbol::Epsilon],
+            },
+            Production {
+                left: "T".to_string(),
+                right: vec![
+                    GrammarSymbol::NonTerminal("F".to_string()),
+                    GrammarSymbol::NonTerminal("T'".to_string()),
+                ],
+            },
+            Production {
+                left: "T'".to_string(),
+                right: vec![
+                    GrammarSymbol::Terminal("*".to_string()),
+                    GrammarSymbol::NonTerminal("F".to_string()),
+                    GrammarSymbol::NonTerminal("T'".to_string()),
+                ],
+            },
+            Production {
+                left: "T'".to_string(),
+                right: vec![GrammarSymbol::Epsilon],
+            },
+            Production {
+                left: "F".to_string(),
+                right: vec![GrammarSymbol::Terminal("id".to_string())],
+            },
+            Production {
+                left: "F".to_string(),
+                right: vec![
+                    GrammarSymbol::Terminal("(".to_string()),
+                    GrammarSymbol::NonTerminal("E".to_string()),
+                    GrammarSymbol::Terminal(")".to_string()),
+                ],
+            },
+        ];
+
+        let mut calculator = FirstFollowCalculator::new(productions);
+
+        println!("\nВычисление First множеств...");
+        calculator.compute_first();
+
+        if show_first {
+            println!("\nFirst множества:");
+            for (nt, first) in calculator.first_sets() {
+                println!("  First({}) = {{", nt);
+                for sym in first {
+                    match sym {
+                        GrammarSymbol::Terminal(t) => println!("    \"{}\"", t),
+                        GrammarSymbol::Epsilon => println!("    ε"),
+                        _ => {}
+                    }
+                }
+                println!("  }}");
+            }
+        }
+
+        println!("\nВычисление Follow множеств...");
+        calculator.compute_follow();
+
+        if show_follow {
+            println!("\nFollow множества:");
+            for (nt, follow) in calculator.follow_sets() {
+                println!("  Follow({}) = {{", nt);
+                for sym in follow {
+                    match sym {
+                        GrammarSymbol::Terminal(t) => println!("    \"{}\"", t),
+                        GrammarSymbol::EndOfFile => println!("    $"),
+                        _ => {}
+                    }
+                }
+                println!("  }}");
+            }
+        }
+
+        if calculator.is_ll1() {
+            println!("\nГрамматика является LL(1)");
+        } else {
+            println!("\nГрамматика НЕ является LL(1)");
+        }
+    }
+
+    Ok(())
+}
+
+/// Обрабатывает команду демонстрации ошибок
+fn handle_error_demo(
+    input: &Path,
+    max_errors: usize,
+    _verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Демонстрация восстановления после ошибок");
+    println!("Максимальное количество ошибок: {}", max_errors);
+
+    let source = utils::read_file_with_limit(input)?;
+    let (tokens, lex_errors) = compiler::lexical_analysis(&source);
+
+    if !lex_errors.is_empty() {
+        println!("\nЛексические ошибки:");
+        for error in &lex_errors {
+            println!("  {}", error);
+        }
+    }
+
+    let mut parser = minic::parser::Parser::new(tokens);
+    parser = parser.with_max_errors(max_errors);
+
+    let ast = parser.parse();
+
+    println!("\nРезультаты синтаксического анализа:");
+    println!(
+        "  AST построен: {}",
+        if ast.is_some() { "good" } else { "bad" }
+    );
+    println!("  Ошибок: {}", parser.errors().len());
+
+    if parser.errors().len() > 0 {
+        println!("\nОшибки:");
+        for error in parser.errors().errors.iter() {
+            println!("  {}", error);
+        }
+
+        println!("\nМетрики:");
+        println!("{}", parser.error_metrics());
+    }
+
+    Ok(())
+}
+
+/// Обрабатывает команду демонстрации инкрементов
+fn handle_inc_demo(_verbose: bool) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Демонстрация инкрементов/декрементов");
+
+    let demo_code = r#"
+fn main() {
+    int x = 5;
+
+    println("Постфиксный инкремент: x++");
+    int a = x++;  // a = 5, x = 6
+    println("a = {}, x = {}", a, x);
+
+    println("Префиксный инкремент: ++x");
+    int b = ++x;  // b = 7, x = 7
+    println("b = {}, x = {}", b, x);
+
+    println("Постфиксный декремент: x--");
+    int c = x--;  // c = 7, x = 6
+    println("c = {}, x = {}", c, x);
+
+    println("Префиксный декремент: --x");
+    int d = --x;  // d = 5, x = 5
+    println("d = {}, x = {}", d, x);
+
+    println("Сложное выражение: x++ + ++x");
+    int e = x++ + ++x;  // e = 5 + 7 = 12, x = 7
+    println("e = {}, x = {}", e, x);
+
+    return 0;
+}
+"#;
+
+    println!("\nДемонстрационный код:");
+    println!("{}", demo_code);
+
+    println!("\nЛексический анализ:");
+    let mut scanner = Scanner::new(demo_code);
+    let (tokens, errors) = scanner.scan_all();
+
+    println!("  Найдено токенов: {}", tokens.len());
+    let inc_tokens = tokens
+        .iter()
+        .filter(|t| {
+            matches!(
+                t.kind,
+                minic::TokenKind::PlusPlus | minic::TokenKind::MinusMinus
+            )
+        })
+        .count();
+    println!("  Токенов ++/--: {}", inc_tokens);
+
+    println!("\nСинтаксический анализ:");
+    let mut parser = minic::parser::Parser::new(tokens);
+    let ast = parser.parse();
+
+    if let Some(program) = ast {
+        let mut printer = PrettyPrinter::new();
+        println!("{}", printer.format_program(&program));
+    }
+
+    if errors.is_empty() && parser.errors().is_empty() {
+        println!("\nИнкременты работают корректно!");
+    } else {
+        println!("\nОбнаружены ошибки");
+    }
+
+    Ok(())
 }
 
 /// Обрабатывает команду генерации документации.
@@ -644,6 +986,7 @@ fn handle_docs_command(
     let status = cmd.status()?;
 
     if status.success() {
+        println!("Документация сгенерирована");
         Ok(())
     } else {
         Err("Ошибка при генерации документации".into())
@@ -667,6 +1010,9 @@ fn handle_info_command(verbose: bool) -> Result<(), Box<dyn std::error::Error>> 
         println!("  docs      - Генерация документации");
         println!("  preprocess- Обработка препроцессором");
         println!("  full      - Полный пайплайн компиляции");
+        println!("  ll1       - LL(1) анализ грамматики");
+        println!("  error-demo- Демонстрация восстановления после ошибок");
+        println!("  inc-demo  - Демонстрация инкрементов/декрементов");
         println!("  info      - Информация о компиляторе");
         println!("  spec      - Спецификация языка");
         println!();
@@ -702,7 +1048,6 @@ fn handle_spec_command(verbose: bool) -> Result<(), Box<dyn std::error::Error>> 
         eprintln!("Файл спецификации не найден: {}", spec_path.display());
         eprintln!("Создайте файл docs/language_spec.md со спецификацией языка.");
 
-        // Показываем путь к docs/
         if verbose {
             println!("\nСодержимое директории docs/:");
             if let Ok(entries) = fs::read_dir("docs") {
@@ -750,7 +1095,7 @@ fn handle_preprocess_command(
     let processed = preprocessor.process()?;
 
     if show {
-        println!("=== РЕЗУЛЬТАТ ПРЕПРОЦЕССОРА ===");
+        println!("\n=== РЕЗУЛЬТАТ ПРЕПРОЦЕССОРА ===");
         println!("{}", processed);
         println!("================================");
     }
@@ -767,7 +1112,6 @@ fn handle_preprocess_command(
     Ok(())
 }
 
-/// Форматирует результат в текстовом формате.
 fn format_text_output(
     tokens: &[minic::Token],
     errors: &[minic::LexerError],
@@ -788,7 +1132,7 @@ fn format_text_output(
         output.push_str(&format!("Найдено {} токенов:\n", tokens.len()));
         for token in tokens {
             if !token.is_eof() {
-                output.push_str(&format!("{}\n", token));
+                output.push_str(&format!("  {}\n", token));
             }
         }
 
@@ -811,7 +1155,6 @@ fn format_text_output(
     output
 }
 
-/// Форматирует результат в JSON формате.
 fn format_json_output(
     tokens: &[minic::Token],
     errors: &[minic::LexerError],
@@ -861,7 +1204,6 @@ fn format_json_output(
     serde_json::to_string_pretty(&result).map_err(|e| e.into())
 }
 
-/// Форматирует результат в минималистичном формате.
 fn format_minimal_output(errors: &[minic::LexerError]) -> String {
     if errors.is_empty() {
         String::from("OK\n")
@@ -874,7 +1216,6 @@ fn format_minimal_output(errors: &[minic::LexerError]) -> String {
     }
 }
 
-/// Форматирует результат в подробном формате.
 fn format_verbose_output(
     tokens: &[minic::Token],
     errors: &[minic::LexerError],
@@ -884,7 +1225,6 @@ fn format_verbose_output(
 
     output.push_str("=== ДЕТАЛЬНЫЙ ОТЧЕТ ЛЕКСИЧЕСКОГО АНАЛИЗА ===\n\n");
 
-    // Статистика
     output.push_str("СТАТИСТИКА:\n");
     output.push_str(&format!("  Всего токенов: {}\n", tokens.len()));
     output.push_str(&format!(
@@ -895,7 +1235,6 @@ fn format_verbose_output(
     output.push_str(&format!("  Позиция завершения: {}\n", scanner.get_line()));
     output.push_str("\n");
 
-    // Ошибки
     if !errors.is_empty() {
         output.push_str("ОШИБКИ:\n");
         for (i, error) in errors.iter().enumerate() {
@@ -904,7 +1243,6 @@ fn format_verbose_output(
         output.push_str("\n");
     }
 
-    // Токены
     output.push_str("ТОКЕНЫ:\n");
     for (i, token) in tokens.iter().enumerate() {
         if !token.is_eof() {
@@ -912,17 +1250,26 @@ fn format_verbose_output(
         }
     }
 
-    // Категории токенов
     let keywords = tokens.iter().filter(|t| t.is_keyword()).count();
     let literals = tokens.iter().filter(|t| t.is_literal()).count();
     let operators = tokens.iter().filter(|t| t.is_operator()).count();
     let delimiters = tokens.iter().filter(|t| t.is_delimiter()).count();
+    let increments = tokens
+        .iter()
+        .filter(|t| {
+            matches!(
+                t.kind,
+                minic::TokenKind::PlusPlus | minic::TokenKind::MinusMinus
+            )
+        })
+        .count();
 
     output.push_str("\nКАТЕГОРИИ ТОКЕНОВ:\n");
     output.push_str(&format!("  Ключевые слова: {}\n", keywords));
     output.push_str(&format!("  Литералы: {}\n", literals));
     output.push_str(&format!("  Операторы: {}\n", operators));
     output.push_str(&format!("  Разделители: {}\n", delimiters));
+    output.push_str(&format!("  Инкременты/декременты: {}\n", increments));
 
     output
 }

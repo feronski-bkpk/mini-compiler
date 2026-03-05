@@ -638,14 +638,18 @@ impl<'a> Scanner<'a> {
             }
 
             '+' => {
-                if self.matches('=') {
+                if self.matches('+') {
+                    Ok(self.make_token(TokenKind::PlusPlus))
+                } else if self.matches('=') {
                     Ok(self.make_token(TokenKind::PlusEq))
                 } else {
                     Ok(self.make_token(TokenKind::Plus))
                 }
             }
             '-' => {
-                if let Some(&next_char) = self.peek() {
+                if self.matches('-') {
+                    Ok(self.make_token(TokenKind::MinusMinus))
+                } else if let Some(&next_char) = self.peek() {
                     if next_char == '>' {
                         self.advance();
                         Ok(self.make_token(TokenKind::Arrow))

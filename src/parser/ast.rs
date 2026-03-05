@@ -538,6 +538,10 @@ pub enum UnaryOp {
     Neg,
     Not,
     Plus,
+    PreIncrement,
+    PostIncrement,
+    PreDecrement,
+    PostDecrement,
 }
 
 impl fmt::Display for UnaryOp {
@@ -546,6 +550,10 @@ impl fmt::Display for UnaryOp {
             UnaryOp::Neg => write!(f, "-"),
             UnaryOp::Not => write!(f, "!"),
             UnaryOp::Plus => write!(f, "+"),
+            UnaryOp::PreIncrement => write!(f, "++ (prefix)"),
+            UnaryOp::PostIncrement => write!(f, "++ (postfix)"),
+            UnaryOp::PreDecrement => write!(f, "-- (prefix)"),
+            UnaryOp::PostDecrement => write!(f, "-- (postfix)"),
         }
     }
 }

@@ -110,6 +110,10 @@ pub enum TokenKind {
     Slash,
     /// Остаток от деления: `%`
     Percent,
+    /// Инкремент: `++`
+    PlusPlus,
+    /// Декремент: `--`
+    MinusMinus,
 
     /// Равенство: `==`
     EqEq,
@@ -521,6 +525,8 @@ pub fn token_type_name(kind: &TokenKind) -> &'static str {
         TokenKind::KwString => "KW_STRING",
         TokenKind::Arrow => "ARROW",
         TokenKind::Dot => "DOT",
+        TokenKind::PlusPlus => "PLUS_PLUS",
+        TokenKind::MinusMinus => "MINUS_MINUS",
     }
 }
 

@@ -1,87 +1,112 @@
-//! Полный демонстрационный файл со всеми возможностями языка
+//cargo run -- full --input examples/full_demo.src --ast-format text --show-metrics
 
-// Препроцессорные директивы
-#define MAX_SIZE 100
-#define GREETING "Hello, Compiler!"
+// Пример программы на MiniC
+// Демонстрация всех возможностей языка
 
-#ifdef ENABLE_FEATURE
-    #define FEATURE_LEVEL 3
-#else
-    #define FEATURE_LEVEL 1
-#endif
+#define MAX_ITERATIONS 10
+#define DEBUG_MODE 1
+#define WELCOME_MSG "MiniC Demo Program"
 
-// Функция вычисления факториала
-fn factorial(n: int) -> int {
+/* Многострочный комментарий
+   с вложенным /* комментарием */ внутри */
+
+struct Point {
+    int x;
+    int y;
+};
+
+struct Circle {
+    struct Point center;
+    int radius;
+};
+
+/*
+ * Функция для вычисления площади круга
+ * Использует препроцессорный макрос для PI
+ */
+#define PI 3.14159
+
+fn circle_area(struct Circle c) -> float {
+    return PI * c.radius * c.radius;
+}
+
+// Функция с инкрементами и декрементами
+fn counter_demo(int start) -> int {
+    int x = start;
+    
+    // Постфиксные операторы
+    int a = x++;  // a = start, x = start + 1
+    
+    // Префиксные операторы
+    int b = ++x;  // b = start + 2, x = start + 2
+    
+    // Декременты
+    int c = x--;  // c = start + 2, x = start + 1
+    int d = --x;  // d = start, x = start
+    
+    return a + b + c + d;
+}
+
+// Рекурсивная функция
+fn factorial(int n) -> int {
     if (n <= 1) {
         return 1;
-    } else {
-        return n * factorial(n - 1);
     }
+    return n * factorial(n - 1);
 }
 
-// Основная функция
-fn main() -> int {
-    // Различные типы переменных
-    int counter = 0;
+// Главная функция
+fn main() {
+    // Объявление переменных
+    int x = 42;
     float pi = 3.14159;
-    bool is_valid = true;
-    string message = GREETING;
-
-    // Операторы
-    int x = 10;
-    int y = 20;
-    int sum = x + y;
-    int product = x * y;
-
+    bool flag = true;
+    string msg = WELCOME_MSG;
+    
+    // Работа со структурами
+    struct Point p;
+    p.x = 10;
+    p.y = 20;
+    
+    struct Circle c;
+    c.center = p;
+    c.radius = 5;
+    
+    // Инкременты полей структуры
+    p.x++;
+    ++p.y;
+    
+    // Вычисления
+    float area = circle_area(c);
+    int fact = factorial(5);
+    int counter = counter_demo(5);
+    
     // Условные операторы
-    if (x > 0 && y < MAX_SIZE) {
-        counter += 1;
-    } else if (x == 0 || y == 0) {
-        counter -= 1;
+    if (x > 0) {
+        x = x + 10;
     } else {
-        counter *= 2;
+        x = x - 10;
     }
-
+    
     // Циклы
-    int i = 0;
-    while (i < 10) {
-        i += 1;
+    int sum = 0;
+    for (int i = 0; i < MAX_ITERATIONS; i = i + 1) {
+        sum = sum + i;
+        
+        #ifdef DEBUG_MODE
+            // Отладочный вывод (будет включен)
+            int debug_var = i;
+        #endif
     }
-
-    for (int j = 0; j < 5; j += 1) {
-        sum += j;
+    
+    // Цикл while с инкрементом
+    int j = 0;
+    while (j < 5) {
+        j++;
     }
-
-    // Структуры (будущая поддержка)
-    struct Point {
-        int x;
-        int y;
-    }
-
-    // Комментарии разных типов
-    // Однострочный комментарий
-    /* Многострочный
-       комментарий */
-    int value = 42; // Комментарий после кода
-
-    // Строки с escape-последовательностями
-    string path = "C:\\Users\\test\\file.src";
-    string multiline = "Line 1\nLine 2\nLine 3";
-
-    // Массивы (будущая поддержка)
-    int numbers[10] = {1, 2, 3, 4, 5};
-
-    return 0;
-}
-
-// Вложенные блоки и сложные выражения
-fn complex_example() {
-    int a = 10, b = 20, c = 30;
-    int result = (a + b) * c / (b - a);
-
-    if ((a > b) || (b < c && c != 0)) {
-        for (int i = a; i <= b; i += 2) {
-            result += i % 3;
-        }
-    }
+    
+    // Сложное выражение
+    int result = (x + p.x) * (c.radius + fact) - counter++ + --sum;
+    
+    return result;
 }

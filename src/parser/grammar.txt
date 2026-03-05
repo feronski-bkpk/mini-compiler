@@ -23,7 +23,7 @@ Param           = Type Identifier;
 StructDecl      = "struct" Identifier "{" { FieldDecl } "}";
 FieldDecl       = Type Identifier ";";
 
-VarDecl         = Type Identifier [ "=" Expression ] ";";
+VarDecl         = Type Identifier [ "=" Expression ] [ ";" ];
 
 // === Типы ===
 Type            = BasicType | StructType;
@@ -42,42 +42,50 @@ Statement       = VarDecl
                 | Block
                 | EmptyStmt;
 
-ExprStmt        = Expression ";";
+ExprStmt        = Expression [ ";" ];
 EmptyStmt       = ";";
 
-IfStmt          = "if" "(" Expression ")" Statement [ "else" Statement ];
-WhileStmt       = "while" "(" Expression ")" Statement;
+// Скобки вокруг условия опциональны
+IfStmt          = "if" [ "(" ] Expression [ ")" ] Statement [ "else" Statement ];
+WhileStmt       = "while" [ "(" ] Expression [ ")" ] Statement;
+
 ForStmt         = "for" "(" ( VarDecl | ExprStmt | ";" )
                         [ Expression ] ";"
                         [ Expression ] ")" Statement;
-ReturnStmt      = "return" [ Expression ] ";";
+
+// Точка с запятой опциональна перед закрывающей скобкой
+ReturnStmt      = "return" [ Expression ] [ ";" ];
 
 // === Выражения с приоритетами (от низшего к высшему) ===
 Expression      = Assignment;
 
-// Уровень 9: Присваивание (правоассоциативное)
+// Уровень 10: Присваивание (правоассоциативное)
 Assignment      = LogicalOr { ("=" | "+=" | "-=" | "*=" | "/=") Assignment };
 
-// Уровень 8: Логическое ИЛИ (левоассоциативное)
+// Уровень 9: Логическое ИЛИ (левоассоциативное)
 LogicalOr       = LogicalAnd { "||" LogicalAnd };
 
-// Уровень 7: Логическое И (левоассоциативное)
+// Уровень 8: Логическое И (левоассоциативное)
 LogicalAnd      = Equality { "&&" Equality };
 
-// Уровень 6: Равенство/неравенство (неассоциативное)
+// Уровень 7: Равенство/неравенство (неассоциативное)
 Equality        = Comparison { ("==" | "!=") Comparison };
 
-// Уровень 5: Сравнение (неассоциативное)
+// Уровень 6: Сравнение (неассоциативное)
 Comparison      = Additive { ("<" | "<=" | ">" | ">=") Additive };
 
-// Уровень 4: Сложение/вычитание (левоассоциативное)
+// Уровень 5: Сложение/вычитание (левоассоциативное)
 Additive        = Multiplicative { ("+" | "-") Multiplicative };
 
-// Уровень 3: Умножение/деление/остаток (левоассоциативное)
+// Уровень 4: Умножение/деление/остаток (левоассоциативное)
 Multiplicative  = Unary { ("*" | "/" | "%") Unary };
 
-// Уровень 2: Унарные операторы (правоассоциативные)
-Unary           = [ "!" | "-" | "+" ] Primary;
+// Уровень 3: Унарные операторы (правоассоциативные)
+Unary           = ( "!" | "-" | "+" | "++" | "--" ) Unary
+                | Postfix;
+
+// Уровень 2: Постфиксные операторы (левоассоциативные)
+Postfix         = Primary ( "++" | "--" )?;
 
 // Уровень 1: Первичные выражения (высший приоритет)
 Primary         = Literal
@@ -121,13 +129,3 @@ Character       = ? любой символ кроме '"', '\\', '\n', '\r' ?;
 // |    - альтернатива
 // " "  - терминальный символ
 // ? ?  - специальная последовательность
-
-// === Статус реализации ===
-// Все правила реализованы в парсере и покрыты тестами.
-// Поддерживаются:
-// - Функции с возвращаемыми типами (->)
-// - Структуры с полями
-// - Доступ к полям структур (.)
-// - Все операторы с правильным приоритетом
-// - Циклы for/while
-// - Условные операторы if/else

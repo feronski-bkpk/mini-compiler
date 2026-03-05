@@ -152,10 +152,24 @@ mod tests {
     fn test_syntactic_analysis_invalid() {
         let source = "fn main() { return 42 }";
         let output = compiler::syntactic_analysis(source);
-        assert!(!output.is_valid());
-        assert!(output.has_errors());
 
-        assert!(output.errors.len() > 0);
+        println!("AST построен: {:?}", output.ast.is_some());
+        println!("Количество ошибок: {}", output.errors.len());
+        println!("Ошибки: {:?}", output.errors.errors);
+        println!("Метрики: {:?}", output.errors.metrics);
+
+        assert!(output.has_errors(), "Должны быть ошибки");
+        assert!(output.errors.len() > 0, "Количество ошибок должно быть > 0");
+
+        assert!(
+            output.ast.is_some(),
+            "AST должен быть построен даже при наличии ошибок"
+        );
+
+        assert!(
+            !output.is_valid(),
+            "Программа с ошибками не должна быть валидной"
+        );
     }
 
     #[test]

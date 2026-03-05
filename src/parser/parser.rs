@@ -15,6 +15,12 @@ pub struct Parser {
     errors: ParseErrors,
     /// Флаг для восстановления после ошибок
     in_error_recovery: bool,
+    /// Глубина рекурсии (для предотвращения переполнения стека)
+    recursion_depth: usize,
+    /// Максимальная глубина рекурсии
+    max_recursion_depth: usize,
+    /// Счетчик попыток восстановления
+    recovery_attempts: usize,
 }
 
 impl Parser {
@@ -25,7 +31,22 @@ impl Parser {
             current: 0,
             errors: ParseErrors::new(),
             in_error_recovery: false,
+            recursion_depth: 0,
+            max_recursion_depth: 1000,
+            recovery_attempts: 0,
         }
+    }
+
+    /// Устанавливает максимальное количество ошибок
+    pub fn with_max_errors(mut self, max: usize) -> Self {
+        self.errors = self.errors.with_max_errors(max);
+        self
+    }
+
+    /// Устанавливает максимальную глубину рекурсии
+    pub fn with_max_recursion_depth(mut self, depth: usize) -> Self {
+        self.max_recursion_depth = depth;
+        self
     }
 
     /// Возвращает собранные ошибки
@@ -33,20 +54,34 @@ impl Parser {
         &self.errors
     }
 
+    /// Возвращает метрики ошибок
+    pub fn error_metrics(&self) -> &crate::parser::error::ErrorMetrics {
+        &self.errors.metrics
+    }
+
+    /// Добавляет ошибку
+    pub fn add_error(&mut self, error: ParseError) {
+        self.errors.add(error);
+    }
+
     /// Основной метод разбора - парсит всю программу
     pub fn parse(&mut self) -> Option<Program> {
         let start_pos = self.current_position();
         let mut declarations = Vec::new();
 
-        while !self.is_at_end() {
+        while !self.is_at_end() && !self.errors.reached_limit() {
             if matches!(self.peek().kind, TokenKind::RBrace) {
                 let pos = self.current_position();
+                let suggestion =
+                    "Проверьте, нет ли лишней закрывающей скобки или не хватает открывающей";
+
                 self.errors.add(
                     ParseError::new(pos, ParseErrorKind::UnexpectedToken)
                         .with_found(self.peek().lexeme.clone())
                         .with_message(
                             "неожиданная закрывающая скобка на верхнем уровне".to_string(),
-                        ),
+                        )
+                        .with_suggestion(suggestion.to_string()),
                 );
                 self.advance();
                 continue;
@@ -58,14 +93,18 @@ impl Parser {
                 }
                 Err(e) => {
                     self.errors.add(e);
-                    if !self.synchronize() {
+
+                    if !self.advanced_synchronize() {
                         break;
                     }
                 }
             }
         }
 
-        if declarations.is_empty() && self.errors.has_fatal() {
+        if declarations.is_empty()
+            && self.errors.has_fatal()
+            && self.errors.metrics.actual_errors > 0
+        {
             None
         } else {
             Some(Program::new(declarations, start_pos.line, start_pos.column))
@@ -75,27 +114,27 @@ impl Parser {
     // === Вспомогательные методы ===
 
     /// Возвращает текущий токен без потребления
-    fn peek(&self) -> &Token {
+    pub fn peek(&self) -> &Token {
         &self.tokens[self.current]
     }
 
     /// Возвращает предыдущий токен
-    fn previous(&self) -> &Token {
+    pub fn previous(&self) -> &Token {
         &self.tokens[self.current - 1]
     }
 
     /// Проверяет, достигнут ли конец файла
-    fn is_at_end(&self) -> bool {
+    pub fn is_at_end(&self) -> bool {
         self.peek().kind == TokenKind::EndOfFile
     }
 
     /// Возвращает текущую позицию
-    fn current_position(&self) -> Position {
+    pub fn current_position(&self) -> Position {
         self.peek().position.clone()
     }
 
     /// Проверяет, совпадает ли текущий токен с ожидаемым типом
-    fn check(&self, kind: &TokenKind) -> bool {
+    pub fn check(&self, kind: &TokenKind) -> bool {
         if self.is_at_end() {
             false
         } else {
@@ -104,13 +143,12 @@ impl Parser {
     }
 
     /// Проверяет, совпадает ли текущий токен с любым из ожидаемых типов
-    #[allow(dead_code)]
-    fn check_any(&self, kinds: &[TokenKind]) -> bool {
+    pub fn check_any(&self, kinds: &[TokenKind]) -> bool {
         kinds.iter().any(|kind| self.check(kind))
     }
 
     /// Потребляет текущий токен, если он совпадает с ожидаемым типом
-    fn match_token(&mut self, kind: &TokenKind) -> bool {
+    pub fn match_token(&mut self, kind: &TokenKind) -> bool {
         if self.check(kind) {
             self.advance();
             true
@@ -120,7 +158,7 @@ impl Parser {
     }
 
     /// Потребляет текущий токен, если он совпадает с любым из ожидаемых типов
-    fn match_any(&mut self, kinds: &[TokenKind]) -> bool {
+    pub fn match_any(&mut self, kinds: &[TokenKind]) -> bool {
         for kind in kinds {
             if self.check(kind) {
                 self.advance();
@@ -131,7 +169,7 @@ impl Parser {
     }
 
     /// Переходит к следующему токену
-    fn advance(&mut self) -> &Token {
+    pub fn advance(&mut self) -> &Token {
         if !self.is_at_end() {
             self.current += 1;
         }
@@ -139,7 +177,7 @@ impl Parser {
     }
 
     /// Потребляет текущий токен или сообщает об ошибке
-    fn consume(
+    pub fn consume(
         &mut self,
         kind: &TokenKind,
         error_kind: ParseErrorKind,
@@ -150,52 +188,214 @@ impl Parser {
         } else {
             let pos = self.current_position();
             let found = self.peek().lexeme.clone();
-            Err(ParseError::new(pos, error_kind)
-                .with_found(found)
-                .with_message(message.to_string()))
+
+            if self.try_phrase_level_recovery(kind, &found) {
+                Ok(self.previous())
+            } else {
+                let suggestion = match error_kind {
+                    ParseErrorKind::MissingSemicolon => {
+                        Some("Попробуйте добавить ';' в конце инструкции".to_string())
+                    }
+                    ParseErrorKind::MissingOpenParen => Some("Попробуйте добавить '('".to_string()),
+                    ParseErrorKind::MissingCloseParen => {
+                        Some("Попробуйте добавить ')'".to_string())
+                    }
+                    ParseErrorKind::MissingOpenBrace => {
+                        Some("Попробуйте добавить '{{' в начале блока".to_string())
+                    }
+                    ParseErrorKind::MissingCloseBrace => {
+                        Some("Попробуйте добавить '}}' в конце блока".to_string())
+                    }
+                    _ => None,
+                };
+
+                Err(ParseError::new(pos, error_kind)
+                    .with_found(found)
+                    .with_message(message.to_string())
+                    .with_suggestion(suggestion.unwrap_or_default()))
+            }
         }
     }
 
-    /// Синхронизация после ошибки - пропускает токены до следующей точки синхронизации
-    fn synchronize(&mut self) -> bool {
-        self.in_error_recovery = true;
+    /// Пытается восстановиться на уровне фразы (вставка/удаление токенов)
+    fn try_phrase_level_recovery(&mut self, expected_kind: &TokenKind, found: &str) -> bool {
+        self.recovery_attempts += 1;
 
-        if !self.is_at_end() {
-            self.advance();
+        if self.recovery_attempts > 10 {
+            return false;
         }
 
-        while !self.is_at_end() {
-            if self.previous().kind == TokenKind::Semicolon {
-                break;
+        match expected_kind {
+            TokenKind::Semicolon => {
+                if !self.is_at_end() {
+                    let next = self.peek();
+                    match &next.kind {
+                        TokenKind::KwIf
+                        | TokenKind::KwWhile
+                        | TokenKind::KwFor
+                        | TokenKind::KwReturn
+                        | TokenKind::KwFn
+                        | TokenKind::KwStruct
+                        | TokenKind::RBrace => {
+                            self.errors.metrics.mark_recovered();
+                            return true;
+                        }
+                        _ => {}
+                    }
+                }
+                false
             }
 
-            match &self.peek().kind {
-                TokenKind::KwFn
-                | TokenKind::KwStruct
-                | TokenKind::KwIf
-                | TokenKind::KwWhile
-                | TokenKind::KwFor
-                | TokenKind::KwReturn
-                | TokenKind::RBrace
-                | TokenKind::EndOfFile => {
-                    break;
-                }
-                _ => {
+            TokenKind::RParen => {
+                if found == ")" {
                     self.advance();
+                    self.errors.metrics.mark_recovered();
+                    true
+                } else if matches!(self.peek().kind, TokenKind::LBrace | TokenKind::Semicolon) {
+                    self.errors.metrics.mark_recovered();
+                    true
+                } else {
+                    false
                 }
             }
+
+            TokenKind::RBrace => {
+                if matches!(self.peek().kind, TokenKind::EndOfFile) {
+                    self.errors.metrics.mark_recovered();
+                    true
+                } else {
+                    false
+                }
+            }
+
+            _ => false,
+        }
+    }
+
+    /// Продвинутая синхронизация с несколькими стратегиями
+    fn advanced_synchronize(&mut self) -> bool {
+        self.in_error_recovery = true;
+        self.recovery_attempts = 0;
+
+        let mut synchronized = false;
+        let mut tokens_skipped = 0;
+        let max_skip = 20;
+
+        while !self.is_at_end() && tokens_skipped < max_skip {
+            if self.is_sync_point() {
+                synchronized = true;
+                break;
+            }
+            self.advance();
+            tokens_skipped += 1;
+        }
+
+        if !synchronized && !self.is_at_end() {
+            synchronized = self.try_insert_missing_tokens();
         }
 
         self.in_error_recovery = false;
-        let result = !self.is_at_end();
-        result
+
+        if synchronized {
+            self.errors.metrics.mark_recovered();
+        }
+
+        synchronized && !self.is_at_end()
+    }
+
+    /// Проверяет, является ли текущая позиция точкой синхронизации
+    pub fn is_sync_point(&self) -> bool {
+        if self.is_at_end() {
+            return true;
+        }
+
+        match &self.peek().kind {
+            TokenKind::Semicolon => true,
+
+            TokenKind::KwFn | TokenKind::KwStruct => true,
+
+            TokenKind::KwIf
+            | TokenKind::KwWhile
+            | TokenKind::KwFor
+            | TokenKind::KwReturn
+            | TokenKind::LBrace
+            | TokenKind::RBrace => true,
+
+            TokenKind::RParen | TokenKind::Comma => true,
+
+            _ => false,
+        }
+    }
+
+    /// Пытается вставить недостающие токены для восстановления
+    fn try_insert_missing_tokens(&mut self) -> bool {
+        let current = self.peek().clone();
+
+        match &current.kind {
+            TokenKind::RBrace => {
+                self.advance();
+                true
+            }
+
+            TokenKind::RParen => {
+                if self.current + 1 < self.tokens.len() {
+                    let next = &self.tokens[self.current + 1];
+                    match &next.kind {
+                        TokenKind::Semicolon | TokenKind::RParen | TokenKind::Comma => {
+                            self.advance();
+                            return true;
+                        }
+                        _ => {}
+                    }
+                }
+                false
+            }
+
+            kind if Self::is_operator(kind) => true,
+
+            _ => false,
+        }
+    }
+
+    /// Проверяет, является ли токен оператором
+    fn is_operator(kind: &TokenKind) -> bool {
+        matches!(
+            kind,
+            TokenKind::Plus
+                | TokenKind::Minus
+                | TokenKind::Asterisk
+                | TokenKind::Slash
+                | TokenKind::Percent
+                | TokenKind::EqEq
+                | TokenKind::BangEq
+                | TokenKind::Lt
+                | TokenKind::LtEq
+                | TokenKind::Gt
+                | TokenKind::GtEq
+                | TokenKind::AmpAmp
+                | TokenKind::PipePipe
+                | TokenKind::Eq
+                | TokenKind::PlusEq
+                | TokenKind::MinusEq
+                | TokenKind::AsteriskEq
+                | TokenKind::SlashEq
+        )
     }
 
     // === Парсинг объявлений ===
 
     /// Парсит объявление верхнего уровня
-    fn parse_declaration(&mut self) -> ParseResult<Declaration> {
-        match &self.peek().kind {
+    pub fn parse_declaration(&mut self) -> ParseResult<Declaration> {
+        self.recursion_depth += 1;
+        if self.recursion_depth > self.max_recursion_depth {
+            self.recursion_depth -= 1;
+            return Err(
+                ParseError::new(self.current_position(), ParseErrorKind::SyntaxError)
+                    .with_message("Превышена максимальная глубина рекурсии".to_string()),
+            );
+        }
+
+        let result = match &self.peek().kind {
             TokenKind::KwFn => Ok(Declaration::Function(self.parse_function_decl()?)),
             TokenKind::KwStruct => Ok(Declaration::Struct(self.parse_struct_decl()?)),
             _ => {
@@ -210,11 +410,14 @@ impl Parser {
                         ))
                 }
             }
-        }
+        };
+
+        self.recursion_depth -= 1;
+        result
     }
 
     /// Проверяет, начинается ли токен с типа
-    fn is_type_start(&self) -> bool {
+    pub fn is_type_start(&self) -> bool {
         matches!(
             &self.peek().kind,
             TokenKind::KwInt
@@ -227,7 +430,7 @@ impl Parser {
     }
 
     /// Парсит объявление функции: fn name(params) -> Type { ... }
-    fn parse_function_decl(&mut self) -> ParseResult<FunctionDecl> {
+    pub fn parse_function_decl(&mut self) -> ParseResult<FunctionDecl> {
         let start_pos = self.current_position();
 
         self.consume(
@@ -241,7 +444,8 @@ impl Parser {
             token => {
                 return Err(
                     ParseError::new(token.position.clone(), ParseErrorKind::ExpectedToken)
-                        .with_found(token.lexeme.clone()),
+                        .with_found(token.lexeme.clone())
+                        .with_suggestion("Имя функции должно быть идентификатором".to_string()),
                 );
             }
         };
@@ -257,7 +461,8 @@ impl Parser {
         if name == "main" && !parameters.is_empty() {
             return Err(
                 ParseError::new(start_pos, ParseErrorKind::InvalidFunctionDecl)
-                    .with_message("Функция main не может иметь параметров".to_string()),
+                    .with_message("Функция main не может иметь параметров".to_string())
+                    .with_suggestion("Удалите параметры у функции main".to_string()),
             );
         }
 
@@ -273,40 +478,75 @@ impl Parser {
             Type::Void
         };
 
-        let body = self.parse_block()?;
+        let body_result = self.parse_block();
 
-        Ok(FunctionDecl::new(
-            name,
-            return_type,
-            parameters,
-            body,
-            start_pos.line,
-            start_pos.column,
-        ))
+        match body_result {
+            Ok(body) => Ok(FunctionDecl::new(
+                name,
+                return_type,
+                parameters,
+                body,
+                start_pos.line,
+                start_pos.column,
+            )),
+            Err(e) => {
+                self.errors.add(e);
+
+                let dummy_body = BlockStmt::new(Vec::new(), start_pos.line, start_pos.column);
+                Ok(FunctionDecl::new(
+                    name,
+                    return_type,
+                    parameters,
+                    dummy_body,
+                    start_pos.line,
+                    start_pos.column,
+                ))
+            }
+        }
     }
 
     /// Парсит список параметров функции
-    fn parse_param_list(&mut self) -> ParseResult<Vec<Param>> {
+    pub fn parse_param_list(&mut self) -> ParseResult<Vec<Param>> {
         let mut params = Vec::new();
 
         if self.check(&TokenKind::RParen) {
             return Ok(params);
         }
 
-        params.push(self.parse_param()?);
+        match self.parse_param() {
+            Ok(param) => params.push(param),
+            Err(e) => {
+                self.errors.add(e);
+                if !self.advanced_synchronize() {
+                    return Ok(params);
+                }
+            }
+        }
 
         while self.match_token(&TokenKind::Comma) {
             if self.check(&TokenKind::RParen) {
                 break;
             }
-            params.push(self.parse_param()?);
+
+            match self.parse_param() {
+                Ok(param) => params.push(param),
+                Err(e) => {
+                    self.errors.add(e);
+                    while !self.is_at_end()
+                        && !self.check(&TokenKind::Comma)
+                        && !self.check(&TokenKind::RParen)
+                    {
+                        self.advance();
+                    }
+                }
+            }
         }
 
         Ok(params)
     }
 
     /// Парсит один параметр: Type name
-    fn parse_param(&mut self) -> ParseResult<Param> {
+    pub fn parse_param(&mut self) -> ParseResult<Param> {
         let start_pos = self.current_position();
         let param_type = self.parse_type()?;
 
@@ -315,7 +555,8 @@ impl Parser {
             token => {
                 return Err(
                     ParseError::new(token.position.clone(), ParseErrorKind::ExpectedToken)
-                        .with_found(token.lexeme.clone()),
+                        .with_found(token.lexeme.clone())
+                        .with_suggestion("Имя параметра должно быть идентификатором".to_string()),
                 );
             }
         };
@@ -329,7 +570,7 @@ impl Parser {
     }
 
     /// Парсит объявление структуры: struct Name { fields }
-    fn parse_struct_decl(&mut self) -> ParseResult<StructDecl> {
+    pub fn parse_struct_decl(&mut self) -> ParseResult<StructDecl> {
         let start_pos = self.current_position();
 
         self.consume(
@@ -343,7 +584,8 @@ impl Parser {
             token => {
                 return Err(
                     ParseError::new(token.position.clone(), ParseErrorKind::ExpectedToken)
-                        .with_found(token.lexeme.clone()),
+                        .with_found(token.lexeme.clone())
+                        .with_suggestion("Имя структуры должно быть идентификатором".to_string()),
                 );
             }
         };
@@ -356,7 +598,18 @@ impl Parser {
 
         let mut fields = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-            fields.push(self.parse_var_decl()?);
+            match self.parse_var_decl() {
+                Ok(field) => fields.push(field),
+                Err(e) => {
+                    self.errors.add(e);
+                    while !self.is_at_end()
+                        && !self.check(&TokenKind::RBrace)
+                        && !self.check(&TokenKind::KwStruct)
+                    {
+                        self.advance();
+                    }
+                }
+            }
         }
 
         self.consume(
@@ -364,6 +617,10 @@ impl Parser {
             ParseErrorKind::MissingCloseBrace,
             "ожидалось '}}' в конце структуры",
         )?;
+
+        if self.check(&TokenKind::Semicolon) {
+            self.advance();
+        }
 
         Ok(StructDecl::new(
             name,
@@ -374,7 +631,7 @@ impl Parser {
     }
 
     /// Парсит объявление переменной: Type name [= Expression];
-    fn parse_var_decl(&mut self) -> ParseResult<VarDecl> {
+    pub fn parse_var_decl(&mut self) -> ParseResult<VarDecl> {
         let start_pos = self.current_position();
 
         let var_type = self.parse_type()?;
@@ -384,7 +641,8 @@ impl Parser {
             token => {
                 return Err(
                     ParseError::new(token.position.clone(), ParseErrorKind::ExpectedToken)
-                        .with_found(token.lexeme.clone()),
+                        .with_found(token.lexeme.clone())
+                        .with_suggestion("Имя переменной должно быть идентификатором".to_string()),
                 );
             }
         };
@@ -396,23 +654,43 @@ impl Parser {
             None
         };
 
-        self.consume(
-            &TokenKind::Semicolon,
-            ParseErrorKind::MissingSemicolon,
-            "ожидалось ';' после объявления переменной",
-        )?;
+        if self.check(&TokenKind::Semicolon) {
+            self.advance();
+            Ok(VarDecl::new(
+                var_type,
+                name,
+                initializer,
+                start_pos.line,
+                start_pos.column,
+            ))
+        } else if self.check(&TokenKind::RBrace) && initializer.is_none() {
+            Ok(VarDecl::new(
+                var_type,
+                name,
+                initializer,
+                start_pos.line,
+                start_pos.column,
+            ))
+        } else {
+            let pos = self.current_position();
+            let error = ParseError::new(pos.clone(), ParseErrorKind::MissingSemicolon)
+                .with_found(self.peek().lexeme.clone())
+                .with_suggestion("Добавьте ';' в конце объявления переменной".to_string());
+            self.errors.add(error);
+            self.errors.metrics.mark_recovered();
 
-        Ok(VarDecl::new(
-            var_type,
-            name,
-            initializer,
-            start_pos.line,
-            start_pos.column,
-        ))
+            Ok(VarDecl::new(
+                var_type,
+                name,
+                initializer,
+                start_pos.line,
+                start_pos.column,
+            ))
+        }
     }
 
     /// Парсит тип
-    fn parse_type(&mut self) -> ParseResult<Type> {
+    pub fn parse_type(&mut self) -> ParseResult<Type> {
         let token = self.peek().clone();
         let pos = token.position.clone();
 
@@ -451,13 +729,18 @@ impl Parser {
                             token.position.clone(),
                             ParseErrorKind::ExpectedToken,
                         )
-                        .with_found(token.lexeme.clone()));
+                        .with_found(token.lexeme.clone())
+                        .with_suggestion(
+                            "После 'struct' должно следовать имя структуры".to_string(),
+                        ));
                     }
                 }
             }
             _ => {
                 return Err(
-                    ParseError::new(pos, ParseErrorKind::UnknownType).with_found(token.lexeme)
+                    ParseError::new(pos, ParseErrorKind::UnknownType)
+                        .with_found(token.lexeme)
+                        .with_suggestion("Используйте один из встроенных типов: int, float, bool, void, string, или struct Имя".to_string()),
                 );
             }
         };
@@ -468,8 +751,17 @@ impl Parser {
     // === Парсинг инструкций ===
 
     /// Парсит инструкцию
-    fn parse_statement(&mut self) -> ParseResult<Statement> {
-        match &self.peek().kind {
+    pub fn parse_statement(&mut self) -> ParseResult<Statement> {
+        self.recursion_depth += 1;
+        if self.recursion_depth > self.max_recursion_depth {
+            self.recursion_depth -= 1;
+            return Err(
+                ParseError::new(self.current_position(), ParseErrorKind::SyntaxError)
+                    .with_message("Превышена максимальная глубина рекурсии".to_string()),
+            );
+        }
+
+        let result = match &self.peek().kind {
             TokenKind::KwIf => Ok(Statement::If(self.parse_if_stmt()?)),
             TokenKind::KwWhile => Ok(Statement::While(self.parse_while_stmt()?)),
             TokenKind::KwFor => Ok(Statement::For(self.parse_for_stmt()?)),
@@ -490,51 +782,116 @@ impl Parser {
                     Ok(Statement::Expression(expr_stmt))
                 }
             }
-        }
+        };
+
+        self.recursion_depth -= 1;
+        result
     }
 
     /// Парсит инструкцию-выражение: Expression;
-    fn parse_expr_stmt(&mut self) -> ParseResult<ExprStmt> {
+    pub fn parse_expr_stmt(&mut self) -> ParseResult<ExprStmt> {
         let start_pos = self.current_position();
         let expr = self.parse_expression()?;
-        self.consume(
-            &TokenKind::Semicolon,
-            ParseErrorKind::MissingSemicolon,
-            "ожидалось ';' после выражения",
-        )?;
-        Ok(ExprStmt::new(expr, start_pos.line, start_pos.column))
+
+        if self.check(&TokenKind::Semicolon) {
+            self.advance();
+            Ok(ExprStmt::new(expr, start_pos.line, start_pos.column))
+        } else if self.check(&TokenKind::RBrace) || self.is_at_end() {
+            Ok(ExprStmt::new(expr, start_pos.line, start_pos.column))
+        } else {
+            let pos = self.current_position();
+            let error = ParseError::new(pos.clone(), ParseErrorKind::MissingSemicolon)
+                .with_found(self.peek().lexeme.clone())
+                .with_suggestion("Добавьте ';' в конце инструкции".to_string());
+            self.errors.add(error);
+            self.errors.metrics.mark_recovered();
+
+            Ok(ExprStmt::new(expr, start_pos.line, start_pos.column))
+        }
     }
 
     /// Парсит блок: { statements }
-    fn parse_block(&mut self) -> ParseResult<BlockStmt> {
+    pub fn parse_block(&mut self) -> ParseResult<BlockStmt> {
+        self.recursion_depth += 1;
+        if self.recursion_depth > self.max_recursion_depth {
+            self.recursion_depth -= 1;
+            return Err(
+                ParseError::new(self.current_position(), ParseErrorKind::SyntaxError).with_message(
+                    "Превышена максимальная глубина рекурсии при разборе блока".to_string(),
+                ),
+            );
+        }
+
         let start_pos = self.current_position();
 
-        self.consume(
-            &TokenKind::LBrace,
-            ParseErrorKind::MissingOpenBrace,
-            "ожидалось '{{' в начале блока",
-        )?;
+        if !self.check(&TokenKind::LBrace) {
+            let pos = self.current_position();
+            let found = self.peek().lexeme.clone();
+            let error = ParseError::new(pos, ParseErrorKind::MissingOpenBrace)
+                .with_found(found)
+                .with_suggestion("Добавьте '{{' в начале блока".to_string());
+
+            self.recursion_depth -= 1;
+            return Err(error);
+        }
+        self.advance();
 
         let mut statements = Vec::new();
-        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-            statements.push(self.parse_statement()?);
+        let mut iteration_count = 0;
+        let max_iterations = 10000;
+
+        while !self.check(&TokenKind::RBrace)
+            && !self.is_at_end()
+            && iteration_count < max_iterations
+        {
+            iteration_count += 1;
+
+            match self.parse_statement() {
+                Ok(stmt) => statements.push(stmt),
+                Err(e) => {
+                    self.errors.add(e);
+                    if !self.advanced_synchronize() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if iteration_count >= max_iterations {
+            self.recursion_depth -= 1;
+            return Err(
+                ParseError::new(self.current_position(), ParseErrorKind::SyntaxError).with_message(
+                    "Превышено максимальное количество инструкций в блоке".to_string(),
+                ),
+            );
         }
 
         if self.check(&TokenKind::RBrace) {
             self.advance();
+            self.recursion_depth -= 1;
+            Ok(BlockStmt::new(statements, start_pos.line, start_pos.column))
         } else {
-            return Err(ParseError::new(
-                self.current_position(),
-                ParseErrorKind::MissingCloseBrace,
-            )
-            .with_found(self.peek().lexeme.clone()));
-        }
+            let pos = self.current_position();
+            let found = if self.is_at_end() {
+                "конец файла".to_string()
+            } else {
+                self.peek().lexeme.clone()
+            };
 
-        Ok(BlockStmt::new(statements, start_pos.line, start_pos.column))
+            let error = ParseError::new(pos.clone(), ParseErrorKind::MissingCloseBrace)
+                .with_found(found)
+                .with_suggestion("Добавьте '}}' в конце блока".to_string());
+
+            self.errors.add(error);
+            self.errors.metrics.mark_recovered();
+
+            self.recursion_depth -= 1;
+            Ok(BlockStmt::new(statements, start_pos.line, start_pos.column))
+        }
     }
 
     /// Парсит if-else: if (condition) statement [else statement]
-    fn parse_if_stmt(&mut self) -> ParseResult<IfStmt> {
+    pub fn parse_if_stmt(&mut self) -> ParseResult<IfStmt> {
         let start_pos = self.current_position();
 
         self.consume(
@@ -542,19 +899,24 @@ impl Parser {
             ParseErrorKind::ExpectedToken,
             "ожидалось 'if'",
         )?;
-        self.consume(
-            &TokenKind::LParen,
-            ParseErrorKind::MissingOpenParen,
-            "ожидалось '(' после 'if'",
-        )?;
+
+        let has_open_paren = self.check(&TokenKind::LParen);
+
+        if has_open_paren {
+            self.advance();
+        }
 
         let condition = self.parse_expression()?;
 
-        self.consume(
-            &TokenKind::RParen,
-            ParseErrorKind::MissingCloseParen,
-            "ожидалось ')' после условия",
-        )?;
+        if self.check(&TokenKind::RParen) {
+            self.advance();
+        } else if has_open_paren {
+            let pos = self.current_position();
+            let error = ParseError::new(pos, ParseErrorKind::MissingCloseParen)
+                .with_found(self.peek().lexeme.clone())
+                .with_suggestion("Добавьте ')' после условия".to_string());
+            self.errors.add(error);
+        }
 
         let then_branch = self.parse_statement()?;
 
@@ -574,7 +936,7 @@ impl Parser {
     }
 
     /// Парсит while: while (condition) statement
-    fn parse_while_stmt(&mut self) -> ParseResult<WhileStmt> {
+    pub fn parse_while_stmt(&mut self) -> ParseResult<WhileStmt> {
         let start_pos = self.current_position();
 
         self.consume(
@@ -582,19 +944,17 @@ impl Parser {
             ParseErrorKind::ExpectedToken,
             "ожидалось 'while'",
         )?;
-        self.consume(
-            &TokenKind::LParen,
-            ParseErrorKind::MissingOpenParen,
-            "ожидалось '(' после 'while'",
-        )?;
+
+        let has_paren = self.check(&TokenKind::LParen);
+        if has_paren {
+            self.advance();
+        }
 
         let condition = self.parse_expression()?;
 
-        self.consume(
-            &TokenKind::RParen,
-            ParseErrorKind::MissingCloseParen,
-            "ожидалось ')' после условия",
-        )?;
+        if has_paren && self.check(&TokenKind::RParen) {
+            self.advance();
+        }
 
         let body = self.parse_statement()?;
 
@@ -607,7 +967,7 @@ impl Parser {
     }
 
     /// Парсит for: for (init; condition; update) statement
-    fn parse_for_stmt(&mut self) -> ParseResult<ForStmt> {
+    pub fn parse_for_stmt(&mut self) -> ParseResult<ForStmt> {
         let start_pos = self.current_position();
 
         self.consume(
@@ -615,42 +975,103 @@ impl Parser {
             ParseErrorKind::ExpectedToken,
             "ожидалось 'for'",
         )?;
-        self.consume(
-            &TokenKind::LParen,
-            ParseErrorKind::MissingOpenParen,
-            "ожидалось '(' после 'for'",
-        )?;
 
-        let init = if self.match_token(&TokenKind::Semicolon) {
+        if !self.check(&TokenKind::LParen) {
+            let pos = self.current_position();
+            let error = ParseError::new(pos, ParseErrorKind::MissingOpenParen)
+                .with_found(self.peek().lexeme.clone())
+                .with_suggestion("Добавьте '(' после 'for'".to_string());
+            self.errors.add(error);
+        } else {
+            self.advance();
+        }
+
+        let init = if self.check(&TokenKind::Semicolon) {
+            self.advance();
             None
         } else if self.is_type_start() {
-            Some(Statement::VariableDecl(self.parse_var_decl()?))
+            match self.parse_var_decl() {
+                Ok(var_decl) => Some(Statement::VariableDecl(var_decl)),
+                Err(e) => {
+                    self.errors.add(e);
+                    while !self.is_at_end() && !self.check(&TokenKind::Semicolon) {
+                        self.advance();
+                    }
+                    if self.check(&TokenKind::Semicolon) {
+                        self.advance();
+                    }
+                    None
+                }
+            }
         } else {
-            Some(Statement::Expression(self.parse_expr_stmt()?))
+            match self.parse_expr_stmt() {
+                Ok(expr_stmt) => Some(Statement::Expression(expr_stmt)),
+                Err(e) => {
+                    self.errors.add(e);
+                    while !self.is_at_end() && !self.check(&TokenKind::Semicolon) {
+                        self.advance();
+                    }
+                    if self.check(&TokenKind::Semicolon) {
+                        self.advance();
+                    }
+                    None
+                }
+            }
         };
 
-        let condition = if !self.check(&TokenKind::Semicolon) {
-            Some(self.parse_expression()?)
+        let condition = if !self.check(&TokenKind::Semicolon) && !self.check(&TokenKind::RParen) {
+            match self.parse_expression() {
+                Ok(expr) => {
+                    if !self.check(&TokenKind::Semicolon) {
+                        let pos = self.current_position();
+                        let error = ParseError::new(pos, ParseErrorKind::MissingSemicolon)
+                            .with_found(self.peek().lexeme.clone())
+                            .with_suggestion("Добавьте ';' после условия".to_string());
+                        self.errors.add(error);
+                    } else {
+                        self.advance();
+                    }
+                    Some(expr)
+                }
+                Err(e) => {
+                    self.errors.add(e);
+                    while !self.is_at_end() && !self.check(&TokenKind::Semicolon) {
+                        self.advance();
+                    }
+                    if self.check(&TokenKind::Semicolon) {
+                        self.advance();
+                    }
+                    None
+                }
+            }
+        } else {
+            if self.check(&TokenKind::Semicolon) {
+                self.advance();
+            }
+            None
+        };
+
+        let update = if !self.check(&TokenKind::RParen) && !self.is_at_end() {
+            match self.parse_expression() {
+                Ok(expr) => Some(expr),
+                Err(e) => {
+                    self.errors.add(e);
+                    None
+                }
+            }
         } else {
             None
         };
-        self.consume(
-            &TokenKind::Semicolon,
-            ParseErrorKind::MissingSemicolon,
-            "ожидалось ';' после условия",
-        )?;
 
-        let update = if !self.check(&TokenKind::RParen) {
-            Some(self.parse_expression()?)
+        if self.check(&TokenKind::RParen) {
+            self.advance();
         } else {
-            None
-        };
-
-        self.consume(
-            &TokenKind::RParen,
-            ParseErrorKind::MissingCloseParen,
-            "ожидалось ')' после заголовка for",
-        )?;
+            let pos = self.current_position();
+            let error = ParseError::new(pos, ParseErrorKind::MissingCloseParen)
+                .with_found(self.peek().lexeme.clone())
+                .with_suggestion("Добавьте ')' после заголовка for".to_string());
+            self.errors.add(error);
+        }
 
         let body = self.parse_statement()?;
 
@@ -665,7 +1086,7 @@ impl Parser {
     }
 
     /// Парсит return: return [expression];
-    fn parse_return_stmt(&mut self) -> ParseResult<ReturnStmt> {
+    pub fn parse_return_stmt(&mut self) -> ParseResult<ReturnStmt> {
         let start_pos = self.current_position();
 
         self.consume(
@@ -674,26 +1095,40 @@ impl Parser {
             "ожидалось 'return'",
         )?;
 
-        let value = if !self.check(&TokenKind::Semicolon) {
-            Some(self.parse_expression()?)
+        let value = if !self.check(&TokenKind::Semicolon) && !self.check(&TokenKind::RBrace) {
+            match self.parse_expression() {
+                Ok(expr) => Some(expr),
+                Err(e) => {
+                    self.errors.add(e);
+                    None
+                }
+            }
         } else {
             None
         };
 
-        self.consume(
-            &TokenKind::Semicolon,
-            ParseErrorKind::MissingSemicolon,
-            "ожидалось ';' после return",
-        )?;
-
-        Ok(ReturnStmt::new(value, start_pos.line, start_pos.column))
+        if self.check(&TokenKind::Semicolon) {
+            self.advance();
+            Ok(ReturnStmt::new(value, start_pos.line, start_pos.column))
+        } else {
+            if self.check(&TokenKind::RBrace) && value.is_some() {
+                let pos = self.current_position();
+                let error = ParseError::new(pos.clone(), ParseErrorKind::MissingSemicolon)
+                    .with_found(self.peek().lexeme.clone())
+                    .with_suggestion("Добавьте ';' перед закрывающей скобкой".to_string());
+                self.errors.add(error);
+                self.errors.metrics.mark_recovered();
+            }
+            Ok(ReturnStmt::new(value, start_pos.line, start_pos.column))
+        }
     }
 
     // === Парсинг выражений с приоритетами ===
 
     /// Парсит выражение (начинаем с самого низкого приоритета)
     pub fn parse_expression(&mut self) -> ParseResult<Expression> {
-        self.parse_assignment()
+        let result = self.parse_assignment();
+        result
     }
 
     /// Уровень 9: Присваивание (правоассоциативное)
@@ -723,7 +1158,10 @@ impl Parser {
                         self.current_position(),
                         ParseErrorKind::InvalidExpression,
                     )
-                    .with_message("Недопустимая цель присваивания".to_string()));
+                    .with_message("Недопустимая цель присваивания".to_string())
+                    .with_suggestion(
+                        "Целью присваивания должна быть переменная или поле структуры".to_string(),
+                    ));
                 }
             }
 
@@ -804,10 +1242,16 @@ impl Parser {
                 TokenKind::GtEq => BinaryOp::Ge,
                 _ => unreachable!(),
             };
+            let op_pos = self.previous().position.clone();
             let right = self.parse_additive()?;
-            let pos = self.previous().position.clone();
 
-            expr = Expression::Binary(BinaryExpr::new(expr, operator, right, pos.line, pos.column));
+            expr = Expression::Binary(BinaryExpr::new(
+                expr,
+                operator,
+                right,
+                op_pos.line,
+                op_pos.column,
+            ));
         }
 
         Ok(expr)
@@ -823,10 +1267,16 @@ impl Parser {
                 TokenKind::Minus => BinaryOp::Sub,
                 _ => unreachable!(),
             };
+            let op_pos = self.previous().position.clone();
             let right = self.parse_multiplicative()?;
-            let pos = self.previous().position.clone();
 
-            expr = Expression::Binary(BinaryExpr::new(expr, operator, right, pos.line, pos.column));
+            expr = Expression::Binary(BinaryExpr::new(
+                expr,
+                operator,
+                right,
+                op_pos.line,
+                op_pos.column,
+            ));
         }
 
         Ok(expr)
@@ -843,10 +1293,16 @@ impl Parser {
                 TokenKind::Percent => BinaryOp::Mod,
                 _ => unreachable!(),
             };
+            let op_pos = self.previous().position.clone();
             let right = self.parse_unary()?;
-            let pos = self.previous().position.clone();
 
-            expr = Expression::Binary(BinaryExpr::new(expr, operator, right, pos.line, pos.column));
+            expr = Expression::Binary(BinaryExpr::new(
+                expr,
+                operator,
+                right,
+                op_pos.line,
+                op_pos.column,
+            ));
         }
 
         Ok(expr)
@@ -867,13 +1323,43 @@ impl Parser {
             Ok(Expression::Unary(UnaryExpr::new(
                 operator, expr, pos.line, pos.column,
             )))
-        } else {
-            let expr = match self.parse_primary() {
-                Ok(expr) => expr,
-                Err(e) => {
-                    return Err(e);
-                }
+        } else if self.match_any(&[TokenKind::PlusPlus, TokenKind::MinusMinus]) {
+            let operator = match self.previous().kind {
+                TokenKind::PlusPlus => UnaryOp::PreIncrement,
+                TokenKind::MinusMinus => UnaryOp::PreDecrement,
+                _ => unreachable!(),
             };
+            let pos = self.previous().position.clone();
+            let expr = self.parse_unary()?;
+
+            Ok(Expression::Unary(UnaryExpr::new(
+                operator, expr, pos.line, pos.column,
+            )))
+        } else {
+            let mut expr = self.parse_primary()?;
+
+            loop {
+                if self.match_token(&TokenKind::PlusPlus) {
+                    let op_pos = self.previous().position.clone();
+                    expr = Expression::Unary(UnaryExpr::new(
+                        UnaryOp::PostIncrement,
+                        expr,
+                        op_pos.line,
+                        op_pos.column,
+                    ));
+                } else if self.match_token(&TokenKind::MinusMinus) {
+                    let op_pos = self.previous().position.clone();
+                    expr = Expression::Unary(UnaryExpr::new(
+                        UnaryOp::PostDecrement,
+                        expr,
+                        op_pos.line,
+                        op_pos.column,
+                    ));
+                } else {
+                    break;
+                }
+            }
+
             Ok(expr)
         }
     }
@@ -920,22 +1406,20 @@ impl Parser {
 
             TokenKind::KwTrue => {
                 self.advance();
-                let expr = Expression::Literal(Literal::new(
+                Ok(Expression::Literal(Literal::new(
                     LiteralValue::Bool(true),
                     pos.line,
                     pos.column,
-                ));
-                Ok(expr)
+                )))
             }
 
             TokenKind::KwFalse => {
                 self.advance();
-                let expr = Expression::Literal(Literal::new(
+                Ok(Expression::Literal(Literal::new(
                     LiteralValue::Bool(false),
                     pos.line,
                     pos.column,
-                ));
-                Ok(expr)
+                )))
             }
 
             TokenKind::Identifier(name) => {
@@ -962,21 +1446,33 @@ impl Parser {
             TokenKind::LParen => {
                 self.advance();
                 let expr = self.parse_expression()?;
-                let pos = self.current_position();
-                self.consume(
-                    &TokenKind::RParen,
-                    ParseErrorKind::MissingCloseParen,
-                    "ожидалось ')' после выражения",
-                )?;
+                if !self.check(&TokenKind::RParen) {
+                    let pos = self.current_position();
+                    let error = ParseError::new(pos, ParseErrorKind::MissingCloseParen)
+                        .with_found(self.peek().lexeme.clone())
+                        .with_suggestion("Добавьте ')' после выражения".to_string());
+                    self.errors.add(error);
+                } else {
+                    self.advance();
+                }
                 Ok(Expression::Grouped(GroupedExpr::new(
                     expr, pos.line, pos.column,
                 )))
             }
 
-            _ => Err(
-                ParseError::new(token.position, ParseErrorKind::UnexpectedToken)
-                    .with_found(token.lexeme),
-            ),
+            _ => {
+                let suggestion = match &token.kind {
+                    TokenKind::RBrace => "Неожиданная '}', возможно, лишняя скобка".to_string(),
+                    TokenKind::RParen => "Неожиданная ')', проверьте парные скобки".to_string(),
+                    _ => format!("Ожидалось выражение, найдено: {}", token.lexeme),
+                };
+
+                Err(
+                    ParseError::new(token.position, ParseErrorKind::UnexpectedToken)
+                        .with_found(token.lexeme)
+                        .with_suggestion(suggestion),
+                )
+            }
         }
     }
 
@@ -989,7 +1485,6 @@ impl Parser {
         let mut current_obj = object;
 
         loop {
-            // Потребляем поле
             let field = match self.advance() {
                 token if matches!(token.kind, TokenKind::Identifier(_)) => token.lexeme.clone(),
                 token => {
@@ -997,7 +1492,8 @@ impl Parser {
                         token.position.clone(),
                         ParseErrorKind::ExpectedToken,
                     )
-                    .with_found(token.lexeme.clone()));
+                    .with_found(token.lexeme.clone())
+                    .with_suggestion("После '.' должно следовать имя поля".to_string()));
                 }
             };
             let field_pos = self.previous().position.clone();
@@ -1027,7 +1523,18 @@ impl Parser {
 
         if !self.check(&TokenKind::RParen) {
             loop {
-                arguments.push(self.parse_expression()?);
+                match self.parse_expression() {
+                    Ok(arg) => arguments.push(arg),
+                    Err(e) => {
+                        self.errors.add(e);
+                        while !self.is_at_end()
+                            && !self.check(&TokenKind::Comma)
+                            && !self.check(&TokenKind::RParen)
+                        {
+                            self.advance();
+                        }
+                    }
+                }
 
                 if !self.match_token(&TokenKind::Comma) {
                     break;
@@ -1060,11 +1567,6 @@ mod tests {
     use super::*;
     use crate::common::position::Position;
     use crate::common::token::{Token, TokenKind};
-
-    #[allow(dead_code)]
-    fn create_token(kind: TokenKind, lexeme: &str, line: usize, column: usize) -> Token {
-        Token::new(kind, lexeme.to_string(), Position::new(line, column))
-    }
 
     #[test]
     fn test_parse_empty_program() {
@@ -1121,5 +1623,91 @@ mod tests {
         let ast = parser.parse();
         assert!(ast.is_some());
         assert!(parser.errors().is_empty());
+    }
+
+    #[test]
+    fn test_error_recovery_missing_semicolon() {
+        let tokens = vec![
+            Token::new(TokenKind::KwFn, "fn".to_string(), Position::new(1, 1)),
+            Token::new(
+                TokenKind::Identifier("main".to_string()),
+                "main".to_string(),
+                Position::new(1, 4),
+            ),
+            Token::new(TokenKind::LParen, "(".to_string(), Position::new(1, 8)),
+            Token::new(TokenKind::RParen, ")".to_string(), Position::new(1, 9)),
+            Token::new(TokenKind::LBrace, "{".to_string(), Position::new(1, 11)),
+            Token::new(
+                TokenKind::KwReturn,
+                "return".to_string(),
+                Position::new(2, 5),
+            ),
+            Token::new(
+                TokenKind::IntLiteral(42),
+                "42".to_string(),
+                Position::new(2, 12),
+            ),
+            Token::new(TokenKind::RBrace, "}".to_string(), Position::new(3, 1)),
+            Token::eof(Position::new(3, 2)),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse();
+
+        println!("AST построен: {:?}", ast.is_some());
+        println!("Количество ошибок: {}", parser.errors().len());
+        println!("Ошибки: {:?}", parser.errors().errors);
+        println!("Метрики: {:?}", parser.errors().metrics);
+
+        assert!(ast.is_some());
+
+        assert_eq!(parser.errors().len(), 1, "Должна быть ровно одна ошибка");
+
+        if parser.errors().len() > 0 {
+            let error = &parser.errors().errors[0];
+            assert_eq!(error.kind, ParseErrorKind::MissingSemicolon);
+
+            assert_eq!(parser.errors().metrics.total_errors_detected, 1);
+            assert_eq!(parser.errors().metrics.actual_errors, 1);
+            assert_eq!(parser.errors().metrics.recovered_errors, 1);
+        }
+    }
+
+    #[test]
+    fn test_error_recovery_multiple_errors() {
+        let tokens = vec![
+            Token::new(TokenKind::KwFn, "fn".to_string(), Position::new(1, 1)),
+            Token::new(
+                TokenKind::Identifier("main".to_string()),
+                "main".to_string(),
+                Position::new(1, 4),
+            ),
+            Token::new(TokenKind::LParen, "(".to_string(), Position::new(1, 8)),
+            Token::new(TokenKind::LBrace, "{".to_string(), Position::new(1, 9)),
+            Token::new(
+                TokenKind::KwReturn,
+                "return".to_string(),
+                Position::new(2, 5),
+            ),
+            Token::new(
+                TokenKind::IntLiteral(42),
+                "42".to_string(),
+                Position::new(2, 12),
+            ),
+            Token::new(TokenKind::RBrace, "}".to_string(), Position::new(3, 1)),
+            Token::new(TokenKind::RBrace, "}".to_string(), Position::new(4, 1)),
+            Token::eof(Position::new(4, 2)),
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse();
+
+        assert!(ast.is_some());
+        assert!(parser.errors().len() >= 2);
+        assert!(parser.errors().metrics.total_errors_detected >= 2);
+        assert!(parser.errors().metrics.actual_errors >= 2);
+        assert!(parser.errors().metrics.recovery_quality() > 0.0);
+
+        println!("{}", parser.errors().metrics);
     }
 }

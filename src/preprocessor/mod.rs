@@ -282,10 +282,13 @@ impl<'a> Preprocessor<'a> {
         let mut in_string = false;
         let mut in_char = false;
         let mut escape_next = false;
-        let mut in_comment = false;
+        let mut comment_depth = 0;
         let mut comment_start: Option<Position> = None;
 
         while let Some(c) = chars.next() {
+            let old_line = position.line;
+            let old_column = position.column;
+
             if c == '\n' {
                 position.line += 1;
                 position.column = 1;
@@ -299,89 +302,101 @@ impl<'a> Preprocessor<'a> {
                 continue;
             }
 
-            match c {
-                '"' if !in_char && !in_comment => {
-                    in_string = !in_string;
-                    result.push(c);
-                }
-                '\'' if !in_string && !in_comment => {
-                    in_char = !in_char;
-                    result.push(c);
-                }
-                '\\' if (in_string || in_char) && !in_comment => {
-                    escape_next = true;
-                    result.push(c);
-                }
-                '/' if !in_string && !in_char && !in_comment => match chars.peek() {
-                    Some('/') => {
-                        chars.next();
-                        if self.preserve_line_numbers {
-                            result.push(' ');
-                            for ch in chars.by_ref() {
-                                if ch == '\n' {
-                                    result.push('\n');
-                                    position.line += 1;
-                                    position.column = 1;
-                                    break;
-                                }
+            if !in_string && !in_char && comment_depth == 0 {
+                if c == '/' {
+                    match chars.peek() {
+                        Some('/') => {
+                            chars.next();
+
+                            if self.preserve_line_numbers {
+                                result.push(' ');
                                 result.push(' ');
                             }
-                        } else {
+
                             for ch in chars.by_ref() {
                                 if ch == '\n' {
-                                    result.push('\n');
-                                    position.line += 1;
-                                    position.column = 1;
+                                    if self.preserve_line_numbers {
+                                        result.push('\n');
+                                    }
                                     break;
+                                } else if self.preserve_line_numbers {
+                                    result.push(' ');
                                 }
                             }
+                            continue;
                         }
+                        _ => {}
                     }
-                    Some('*') => {
-                        chars.next();
-                        comment_start = Some(position);
-                        in_comment = true;
+                }
+            }
 
-                        if self.preserve_line_numbers {
-                            result.push(' ');
-                            result.push(' ');
-                        }
+            if !in_string && !in_char {
+                if c == '/' && chars.peek() == Some(&'*') && comment_depth == 0 {
+                    chars.next();
+                    comment_start = Some(Position::new(old_line, old_column));
+                    comment_depth = 1;
+
+                    if self.preserve_line_numbers {
+                        result.push(' ');
+                        result.push(' ');
                     }
-                    _ => {
-                        result.push(c);
+                    continue;
+                } else if c == '/' && chars.peek() == Some(&'*') && comment_depth > 0 {
+                    chars.next();
+                    comment_depth += 1;
+
+                    if self.preserve_line_numbers {
+                        result.push(' ');
+                        result.push(' ');
                     }
-                },
-                '*' if in_comment => {
-                    if let Some('/') = chars.peek() {
-                        chars.next();
-                        in_comment = false;
+                    continue;
+                } else if c == '*' && chars.peek() == Some(&'/') && comment_depth > 0 {
+                    chars.next();
+                    comment_depth -= 1;
+
+                    if self.preserve_line_numbers {
+                        result.push(' ');
+                        result.push(' ');
+                    }
+
+                    if comment_depth == 0 {
                         comment_start = None;
+                    }
+                    continue;
+                }
+            }
 
-                        if self.preserve_line_numbers {
-                            result.push(' ');
-                            result.push(' ');
-                        }
-                    } else if self.preserve_line_numbers {
+            if comment_depth > 0 {
+                if self.preserve_line_numbers {
+                    if c == '\n' {
+                        result.push('\n');
+                    } else {
                         result.push(' ');
                     }
                 }
+                continue;
+            }
+
+            match c {
+                '"' if !in_char => {
+                    in_string = !in_string;
+                    result.push(c);
+                }
+                '\'' if !in_string => {
+                    in_char = !in_char;
+                    result.push(c);
+                }
+                '\\' if in_string || in_char => {
+                    escape_next = true;
+                    result.push(c);
+                }
                 _ => {
-                    if in_comment {
-                        if self.preserve_line_numbers {
-                            if c == '\n' {
-                                result.push('\n');
-                            } else {
-                                result.push(' ');
-                            }
-                        }
-                    } else {
-                        result.push(c);
-                    }
+                    result.push(c);
                 }
             }
         }
 
-        if in_comment {
+        if comment_depth > 0 {
             return Err(PreprocessorError::UnterminatedComment {
                 position: comment_start.unwrap_or(start_position),
             });

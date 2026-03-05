@@ -70,29 +70,51 @@ impl DotGenerator {
         self.node_counter
     }
 
-    /// Форматирует узел в DOT-формате
+    /// Форматирует узел в DOT-формате с экранированием метки
     fn format_node(&self, id: usize, label: &str, color: &str) -> String {
+        let escaped_label = self.escape_label(label);
         format!(
             "    node{} [label=\"{}\", shape=box, style=\"filled,rounded\", fillcolor={}];\n",
-            id, label, color
+            id, escaped_label, color
         )
     }
 
     /// Форматирует ребро между узлами
     fn format_edge(&self, from: usize, to: usize, label: Option<&str>) -> String {
         if let Some(label) = label {
-            format!("    node{} -> node{} [label=\"{}\"];\n", from, to, label)
+            let escaped_label = self.escape_label(label);
+            format!(
+                "    node{} -> node{} [label=\"{}\"];\n",
+                from, to, escaped_label
+            )
         } else {
             format!("    node{} -> node{};\n", from, to)
         }
     }
 
-    /// Экранирует специальные символы в метках
+    /// Экранирует специальные символы в метках для DOT формата
     fn escape_label(&self, text: &str) -> String {
-        text.replace('"', "\\\"")
-            .replace('\n', "\\n")
-            .replace('\r', "\\r")
-            .replace('\t', "\\t")
+        let mut result = String::with_capacity(text.len() * 2);
+
+        for c in text.chars() {
+            match c {
+                '"' => result.push_str("\\\""),
+                '\\' => result.push_str("\\\\"),
+                '\n' => result.push_str("\\n"),
+                '\r' => result.push_str("\\r"),
+                '\t' => result.push_str("\\t"),
+                '<' => result.push_str("\\<"),
+                '>' => result.push_str("\\>"),
+                '{' => result.push_str("\\{"),
+                '}' => result.push_str("\\}"),
+                '|' => result.push_str("\\|"),
+                '[' => result.push_str("\\["),
+                ']' => result.push_str("\\]"),
+                _ => result.push(c),
+            }
+        }
+
+        result
     }
 
     /// Генерирует DOT-граф для программы
@@ -124,7 +146,7 @@ impl DotGenerator {
 impl Visitor<usize> for DotGenerator {
     fn visit_program(&mut self, program: &Program) -> usize {
         let node_id = self.next_node_id();
-        let label = format!("Program\\n[line {}]", program.node.line);
+        let label = format!("Program [line {}]", program.node.line);
         let node_str = self.format_node(node_id, &label, &self.colors.program);
         self.output.push_str(&node_str);
 
@@ -144,18 +166,15 @@ impl Visitor<usize> for DotGenerator {
     fn visit_function_decl(&mut self, func: &FunctionDecl) -> usize {
         let node_id = self.next_node_id();
         let label = format!(
-            "Function\\n{}\\n[{}]\\nreturns {}",
-            self.escape_label(&func.name),
-            func.node.line,
-            func.return_type
+            "Function {} [line {}]\\nreturns {}",
+            func.name, func.node.line, func.return_type
         );
         let node_str = self.format_node(node_id, &label, &self.colors.function);
         self.output.push_str(&node_str);
 
-        // Параметры
         if !func.parameters.is_empty() {
             let params_id = self.next_node_id();
-            let params_label = format!("Parameters\\n({})", func.parameters.len());
+            let params_label = format!("Parameters ({})", func.parameters.len());
             let params_node_str =
                 self.format_node(params_id, &params_label, &self.colors.statement);
             self.output.push_str(&params_node_str);
@@ -169,7 +188,6 @@ impl Visitor<usize> for DotGenerator {
             }
         }
 
-        // Тело функции
         let body_id = self.visit_block(&func.body);
         self.output
             .push_str(&self.format_edge(node_id, body_id, Some("body")));
@@ -180,17 +198,15 @@ impl Visitor<usize> for DotGenerator {
     fn visit_struct_decl(&mut self, struct_decl: &StructDecl) -> usize {
         let node_id = self.next_node_id();
         let label = format!(
-            "Struct\\n{}\\n[line {}]",
-            self.escape_label(&struct_decl.name),
-            struct_decl.node.line
+            "Struct {} [line {}]",
+            struct_decl.name, struct_decl.node.line
         );
         let node_str = self.format_node(node_id, &label, &self.colors.struct_node);
         self.output.push_str(&node_str);
 
-        // Поля структуры
         if !struct_decl.fields.is_empty() {
             let fields_id = self.next_node_id();
-            let fields_label = format!("Fields\\n({})", struct_decl.fields.len());
+            let fields_label = format!("Fields ({})", struct_decl.fields.len());
             let fields_node_str =
                 self.format_node(fields_id, &fields_label, &self.colors.statement);
             self.output.push_str(&fields_node_str);
@@ -212,7 +228,7 @@ impl Visitor<usize> for DotGenerator {
         let label = format!(
             "VarDecl\\n{} {}{}",
             var_decl.var_type,
-            self.escape_label(&var_decl.name),
+            var_decl.name,
             if var_decl.initializer.is_some() {
                 " = ..."
             } else {
@@ -242,11 +258,7 @@ impl Visitor<usize> for DotGenerator {
 
     fn visit_param(&mut self, param: &Param) -> usize {
         let node_id = self.next_node_id();
-        let label = format!(
-            "Param\\n{}: {}",
-            self.escape_label(&param.name),
-            param.param_type
-        );
+        let label = format!("Param\\n{}: {}", param.name, param.param_type);
         let node_str = self.format_node(node_id, &label, &self.colors.variable);
         self.output.push_str(&node_str);
         node_id
@@ -255,7 +267,7 @@ impl Visitor<usize> for DotGenerator {
     fn visit_block(&mut self, block: &BlockStmt) -> usize {
         let node_id = self.next_node_id();
         let label = format!(
-            "Block\\n[line {}]\\n{} stmts",
+            "Block [line {}]\\n{} stmts",
             block.node.line,
             block.statements.len()
         );
@@ -282,7 +294,7 @@ impl Visitor<usize> for DotGenerator {
 
     fn visit_if_stmt(&mut self, if_stmt: &IfStmt) -> usize {
         let node_id = self.next_node_id();
-        let label = format!("IfStmt\\n[line {}]", if_stmt.node.line);
+        let label = format!("IfStmt [line {}]", if_stmt.node.line);
         let node_str = self.format_node(node_id, &label, &self.colors.statement);
         self.output.push_str(&node_str);
 
@@ -332,7 +344,7 @@ impl Visitor<usize> for DotGenerator {
 
     fn visit_while_stmt(&mut self, while_stmt: &WhileStmt) -> usize {
         let node_id = self.next_node_id();
-        let label = format!("WhileStmt\\n[line {}]", while_stmt.node.line);
+        let label = format!("WhileStmt [line {}]", while_stmt.node.line);
         let node_str = self.format_node(node_id, &label, &self.colors.statement);
         self.output.push_str(&node_str);
 
@@ -367,7 +379,7 @@ impl Visitor<usize> for DotGenerator {
 
     fn visit_for_stmt(&mut self, for_stmt: &ForStmt) -> usize {
         let node_id = self.next_node_id();
-        let label = format!("ForStmt\\n[line {}]", for_stmt.node.line);
+        let label = format!("ForStmt [line {}]", for_stmt.node.line);
         let node_str = self.format_node(node_id, &label, &self.colors.statement);
         self.output.push_str(&node_str);
 
@@ -435,9 +447,9 @@ impl Visitor<usize> for DotGenerator {
     fn visit_return_stmt(&mut self, return_stmt: &ReturnStmt) -> usize {
         let node_id = self.next_node_id();
         let label = if return_stmt.value.is_some() {
-            "ReturnStmt\\nwith value".to_string()
+            "ReturnStmt with value".to_string()
         } else {
-            "ReturnStmt\\nvoid".to_string()
+            "ReturnStmt void".to_string()
         };
         let node_str = self.format_node(node_id, &label, &self.colors.statement);
         self.output.push_str(&node_str);
@@ -483,7 +495,7 @@ impl Visitor<usize> for DotGenerator {
 
     fn visit_empty_stmt(&mut self, empty_stmt: &EmptyStmt) -> usize {
         let node_id = self.next_node_id();
-        let label = format!("EmptyStmt\\n[line {}]", empty_stmt.node.line);
+        let label = format!("EmptyStmt [line {}]", empty_stmt.node.line);
         let node_str = self.format_node(node_id, &label, &self.colors.statement);
         self.output.push_str(&node_str);
         node_id
@@ -491,7 +503,17 @@ impl Visitor<usize> for DotGenerator {
 
     fn visit_literal(&mut self, literal: &Literal) -> usize {
         let node_id = self.next_node_id();
-        let label = format!("Literal\\n{}", literal.value);
+
+        let value_str = match &literal.value {
+            LiteralValue::String(s) => {
+                format!("\\\"{}\\\"", self.escape_label(s))
+            }
+            LiteralValue::Int(i) => format!("{}", i),
+            LiteralValue::Float(f) => format!("{}", f),
+            LiteralValue::Bool(b) => format!("{}", b),
+        };
+
+        let label = format!("Literal\\n{}", value_str);
         let node_str = self.format_node(node_id, &label, &self.colors.literal);
         self.output.push_str(&node_str);
         node_id
@@ -499,7 +521,7 @@ impl Visitor<usize> for DotGenerator {
 
     fn visit_identifier(&mut self, identifier: &IdentifierExpr) -> usize {
         let node_id = self.next_node_id();
-        let label = format!("Identifier\\n{}", self.escape_label(&identifier.name));
+        let label = format!("Identifier\\n{}", identifier.name);
         let node_str = self.format_node(node_id, &label, &self.colors.identifier);
         self.output.push_str(&node_str);
         node_id
@@ -618,7 +640,7 @@ impl Visitor<usize> for DotGenerator {
 
         if !call.arguments.is_empty() {
             let args_id = self.next_node_id();
-            let args_label = format!("Arguments\\n({})", call.arguments.len());
+            let args_label = format!("Arguments ({})", call.arguments.len());
             let args_node_str = self.format_node(args_id, &args_label, &self.colors.expression);
             self.output.push_str(&args_node_str);
             self.output
@@ -645,7 +667,7 @@ impl Visitor<usize> for DotGenerator {
 
     fn visit_struct_access(&mut self, access: &StructAccessExpr) -> usize {
         let node_id = self.next_node_id();
-        let label = format!("StructAccess\\n.{}", self.escape_label(&access.field));
+        let label = format!("StructAccess\\n.{}", access.field);
         let node_str = self.format_node(node_id, &label, &self.colors.expression);
         self.output.push_str(&node_str);
 
