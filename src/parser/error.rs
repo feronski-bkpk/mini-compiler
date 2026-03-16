@@ -200,9 +200,9 @@ impl fmt::Display for ParseError {
         }
 
         if let Some(suggestion) = &self.suggestion {
-            write!(f, "\n  💡 Совет: {}", suggestion)?;
+            write!(f, "\n  Совет: {}", suggestion)?;
         } else if let Some(suggestion) = self.generate_suggestion() {
-            write!(f, "\n  💡 Совет: {}", suggestion)?;
+            write!(f, "\n  Совет: {}", suggestion)?;
         }
 
         if self.is_cascading {
@@ -294,7 +294,7 @@ impl ErrorMetrics {
 
 impl fmt::Display for ErrorMetrics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "📊 Метрики ошибок:")?;
+        writeln!(f, "Метрики ошибок:")?;
         writeln!(f, "  Обнаружено ошибок: {}", self.total_errors_detected)?;
         writeln!(f, "  Фактических ошибок: {}", self.actual_errors)?;
         writeln!(f, "  Предотвращено каскадных: {}", self.cascading_prevented)?;
