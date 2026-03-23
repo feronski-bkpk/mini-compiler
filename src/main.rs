@@ -149,6 +149,29 @@ enum Commands {
         show_metrics: bool,
     },
 
+    /// Выполнить семантический анализ
+    Semantic {
+        /// Входной файл
+        #[arg(short, long)]
+        input: PathBuf,
+
+        /// Выходной файл для результатов
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Показать дамп таблицы символов
+        #[arg(long)]
+        show_symbols: bool,
+
+        /// Показать декорированное AST
+        #[arg(long)]
+        show_ast: bool,
+
+        /// Показать размещение в памяти (смещения и размеры)
+        #[arg(long)]
+        show_layout: bool,
+    },
+
     /// Проверить синтаксис исходного кода
     Check {
         /// Входной файл с исходным кодом
@@ -317,6 +340,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             defines,
             preprocess,
             show_metrics,
+            cli.verbose,
+        ),
+
+        Commands::Semantic {
+            input,
+            output,
+            show_symbols,
+            show_ast,
+            show_layout,
+        } => handle_semantic_command(
+            &input,
+            output,
+            show_symbols,
+            show_ast,
+            show_layout,
             cli.verbose,
         ),
 
@@ -1110,6 +1148,71 @@ fn handle_preprocess_command(
     }
 
     Ok(())
+}
+
+fn handle_semantic_command(
+    input: &Path,
+    output: Option<PathBuf>,
+    show_symbols: bool,
+    show_ast: bool,
+    show_layout: bool,
+    verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if verbose {
+        println!("Семантический анализ файла: {}", input.display());
+    }
+
+    let source = utils::read_file_with_limit(input)?;
+    let parse_output = compiler::syntactic_analysis(&source);
+
+    if !parse_output.ast.is_some() {
+        eprintln!("Не удалось построить AST из-за синтаксических ошибок");
+        return Err("Синтаксические ошибки".into());
+    }
+
+    let mut analyzer = minic::semantic::SemanticAnalyzer::new();
+    let semantic_output = analyzer.analyze(parse_output.ast.unwrap());
+
+    let mut output_text = String::new();
+
+    if semantic_output.has_errors() {
+        output_text.push_str(&semantic_output.errors.to_string());
+    } else if verbose {
+        output_text.push_str("Семантических ошибок не найдено.\n");
+    }
+
+    if show_symbols {
+        if show_layout {
+            output_text.push_str(&semantic_output.symbol_table.dump_with_layout());
+        } else {
+            output_text.push_str(&semantic_output.symbol_table.dump());
+        }
+    }
+
+    if show_ast {
+        output_text.push_str("\n=== ДЕКОРИРОВАННОЕ AST ===\n");
+        let mut printer = minic::semantic::DecoratedAstPrinter::new()
+            .with_types(true)
+            .with_symbols(show_symbols);
+        if let Some(ast) = &semantic_output.decorated_ast {
+            output_text.push_str(&printer.format_program(ast, &semantic_output.symbol_table));
+        }
+    }
+
+    if let Some(output_path) = output {
+        utils::write_file(&output_path, &output_text)?;
+        if verbose {
+            println!("Результат записан в: {}", output_path.display());
+        }
+    } else {
+        print!("{}", output_text);
+    }
+
+    if semantic_output.has_errors() {
+        Err("Обнаружены семантические ошибки".into())
+    } else {
+        Ok(())
+    }
 }
 
 fn format_text_output(

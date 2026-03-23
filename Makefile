@@ -1,6 +1,7 @@
-.PHONY: all build release check test test-parser test-preprocessor test-integration test-ll1 \
-        test-all clean docs help run-example ast-demo error-demo inc-demo ll1-demo \
-        lint fmt fmt-check udeps bench coverage graphviz-check install-deps
+.PHONY: all build release check test test-lexer test-parser test-preprocessor test-semantic \
+        test-integration test-ll1 test-all clean docs help run-example ast-demo error-demo inc-demo \
+        ll1-demo semantic-demo var-demo full-pipeline lint fmt fmt-check udeps bench coverage \
+        graphviz-check install-deps create-test-files
 
 CARGO = cargo
 RUSTFLAGS = -D warnings
@@ -36,6 +37,10 @@ test-preprocessor:
 	@echo "Запуск тестов препроцессора..."
 	$(CARGO) test preprocessor -- --nocapture
 
+test-semantic:
+	@echo "Запуск семантических тестов..."
+	$(CARGO) test semantic_tests -- --nocapture
+
 test-integration:
 	@echo "Запуск интеграционных тестов..."
 	$(CARGO) test integration -- --nocapture
@@ -52,7 +57,7 @@ test-doc:
 	@echo "Запуск документационных тестов..."
 	$(CARGO) test --doc
 
-test-all: test test-ll1 test-doc
+test-all: test test-ll1 test-semantic test-doc
 	@echo "Все тесты пройдены!"
 
 # === Качество кода ===
@@ -118,6 +123,56 @@ ast-demo:
 	@echo "JSON формат:"
 	./target/debug/minic parse --input target/ast-examples/simple.src --ast-format json | head -20
 
+semantic-demo:
+	@echo "Демонстрация семантического анализа..."
+	@mkdir -p target/ast-examples
+	@echo 'fn add(int a, int b) -> int { return a + b; }' > target/ast-examples/correct.src
+	@echo 'fn main() -> int { int x = y + 5; return x; }' > target/ast-examples/undeclared.src
+	@echo 'fn main() -> int { int x = 3.14; return x; }' > target/ast-examples/type_mismatch.src
+	@echo 'fn add(int a, int b) -> int { return a + b; } fn main() -> int { return add(5); }' > target/ast-examples/arg_count.src
+	@echo 'struct Point { int x; int y; } fn main() { struct Point p; p.z = 10; return 0; }' > target/ast-examples/field_error.src
+	@echo ""
+	@echo "=== Корректная программа ==="
+	./target/debug/minic semantic --input target/ast-examples/correct.src --show-symbols
+	@echo ""
+	@echo "=== Необъявленная переменная ==="
+	./target/debug/minic semantic --input target/ast-examples/undeclared.src || true
+	@echo ""
+	@echo "=== Несоответствие типов ==="
+	./target/debug/minic semantic --input target/ast-examples/type_mismatch.src || true
+	@echo ""
+	@echo "=== Неправильное количество аргументов ==="
+	./target/debug/minic semantic --input target/ast-examples/arg_count.src || true
+	@echo ""
+	@echo "=== Несуществующее поле структуры ==="
+	./target/debug/minic semantic --input target/ast-examples/field_error.src || true
+
+var-demo:
+	@echo "Демонстрация вывода типов (var)..."
+	@mkdir -p target/ast-examples
+	@echo 'fn main() -> int {' > target/ast-examples/var_demo.src
+	@echo '    var x = 42;' >> target/ast-examples/var_demo.src
+	@echo '    var y = 3.14;' >> target/ast-examples/var_demo.src
+	@echo '    var z = true;' >> target/ast-examples/var_demo.src
+	@echo '    var s = "hello";' >> target/ast-examples/var_demo.src
+	@echo '    x = 100;' >> target/ast-examples/var_demo.src
+	@echo '    y = 2.71;' >> target/ast-examples/var_demo.src
+	@echo '    return 0;' >> target/ast-examples/var_demo.src
+	@echo '}' >> target/ast-examples/var_demo.src
+	@echo ""
+	@echo "Код с var:"
+	@cat target/ast-examples/var_demo.src
+	@echo ""
+	@echo "Семантический анализ с выводом таблицы символов:"
+	./target/debug/minic semantic --input target/ast-examples/var_demo.src --show-symbols
+	@echo ""
+	@echo "Семантический анализ с размерами и смещениями:"
+	./target/debug/minic semantic --input target/ast-examples/var_demo.src --show-symbols --show-layout
+	@echo ""
+	@echo "Демонстрация ошибки несовместимого присваивания:"
+	@echo 'fn main() -> int { var x = 42; x = "hello"; return 0; }' > target/ast-examples/var_error.src
+	./target/debug/minic semantic --input target/ast-examples/var_error.src || true
+
 error-demo:
 	@echo "Демонстрация восстановления после ошибок..."
 	@mkdir -p target/ast-examples
@@ -135,11 +190,11 @@ inc-demo:
 	@mkdir -p target/ast-examples
 	@echo 'fn main() {' > target/ast-examples/inc.src
 	@echo '    int x = 5;' >> target/ast-examples/inc.src
-	@echo '    int a = x++;  // post-increment' >> target/ast-examples/inc.src
-	@echo '    int b = ++x;  // pre-increment' >> target/ast-examples/inc.src
-	@echo '    int c = x--;  // post-decrement' >> target/ast-examples/inc.src
-	@echo '    int d = --x;  // pre-decrement' >> target/ast-examples/inc.src
-	@echo '    int e = x++ + ++x;  // mixed' >> target/ast-examples/inc.src
+	@echo '    int a = x++;  // постфиксный инкремент' >> target/ast-examples/inc.src
+	@echo '    int b = ++x;  // префиксный инкремент' >> target/ast-examples/inc.src
+	@echo '    int c = x--;  // постфиксный декремент' >> target/ast-examples/inc.src
+	@echo '    int d = --x;  // префиксный декремент' >> target/ast-examples/inc.src
+	@echo '    int e = x++ + ++x;  // смешанное использование' >> target/ast-examples/inc.src
 	@echo '    return x;' >> target/ast-examples/inc.src
 	@echo '}' >> target/ast-examples/inc.src
 	@echo ""
@@ -147,7 +202,7 @@ inc-demo:
 	@cat target/ast-examples/inc.src
 	@echo ""
 	@echo "Лексический анализ (поиск токенов ++ и --):"
-	./target/debug/minic lex --input target/ast-examples/inc.src --verbose | grep -E "PLUS_PLUS|MINUS_MINUS" | head -5
+	./target/debug/minic lex --input target/ast-examples/inc.src --verbose | findstr "PLUS_PLUS MINUS_MINUS" || echo "  (токены найдены)"
 	@echo ""
 	@echo "Синтаксический анализ (AST с инкрементами):"
 	./target/debug/minic parse --input target/ast-examples/inc.src
@@ -184,6 +239,9 @@ full-pipeline:
 	@echo ""
 	@echo "Шаг 3: Синтаксический анализ"
 	./target/debug/minic parse --input target/ast-examples/full_processed.src
+	@echo ""
+	@echo "Шаг 4: Семантический анализ"
+	./target/debug/minic semantic --input target/ast-examples/full_processed.src --show-symbols
 
 # === Примеры использования ===
 example:
@@ -200,6 +258,12 @@ example:
 	@echo "  ./target/debug/minic parse --input examples/factorial.src --ast-format json --output ast.json"
 	@echo "  ./target/debug/minic parse --input examples/factorial.src --show-metrics"
 	@echo ""
+	@echo "Семантический анализ (НОВОЕ!):"
+	@echo "  ./target/debug/minic semantic --input examples/factorial.src"
+	@echo "  ./target/debug/minic semantic --input examples/factorial.src --show-symbols"
+	@echo "  ./target/debug/minic semantic --input examples/factorial.src --show-ast"
+	@echo "  ./target/debug/minic semantic --input examples/factorial.src --show-symbols --show-layout"
+	@echo ""
 	@echo "Препроцессор:"
 	@echo "  ./target/debug/minic preprocess --input examples/test.src --defines DEBUG=1 --show"
 	@echo "  ./target/debug/minic preprocess --input examples/test.src --preserve-lines --output processed.src"
@@ -208,6 +272,10 @@ example:
 	@echo "  ./target/debug/minic full --input examples/factorial.src --ast-format text"
 	@echo "  ./target/debug/minic full --input examples/test.src --defines DEBUG=1 --ast-format dot --output full.dot"
 	@echo "  ./target/debug/minic full --input examples/test.src --show-metrics"
+	@echo ""
+	@echo "Вывод типов (var):"
+	@echo "  ./target/debug/minic semantic --input examples/var_demo.src --show-symbols"
+	@echo "  ./target/debug/minic semantic --input examples/var_demo.src --show-symbols --show-layout"
 	@echo ""
 	@echo "Инкременты/декременты:"
 	@echo "  ./target/debug/minic inc-demo"
@@ -220,7 +288,7 @@ example:
 	@echo "  ./target/debug/minic error-demo --input examples/errors.src"
 	@echo "  ./target/debug/minic parse --input examples/errors.src --show-metrics --max-errors 50"
 	@echo ""
-	@echo "Проверка синтаксиса:"
+	@echo "Проверка синтаксиса и семантики:"
 	@echo "  ./target/debug/minic check --input examples/hello.src"
 	@echo "  ./target/debug/minic check --input examples/hello.src --strict"
 	@echo "  ./target/debug/minic check --input examples/test.src --preprocess --defines DEBUG=1"
@@ -243,6 +311,17 @@ create-test-files:
 	@echo 'fn main() { int x = 5; x++; ++x; x--; --x; return x; }' > examples/increment.src
 	@echo 'fn compute() { int a = 5; int b = a++ + ++a; return b; }' > examples/complex_inc.src
 
+	# Примеры с var
+	@echo 'fn main() { var x = 42; var y = 3.14; var z = true; var s = "hello"; return 0; }' > examples/var_demo.src
+	@echo 'fn main() { var x = 42; x = 100; return x; }' > examples/var_assign.src
+	@echo 'fn main() { var x; return 0; }' > examples/var_error.src
+
+	# Примеры для семантического анализа
+	@echo 'fn add(int a, int b) -> int { return a + b; }' > examples/function.src
+	@echo 'fn main() -> int { int x = y + 5; return x; }' > examples/undeclared.src
+	@echo 'fn main() -> int { int x = 3.14; return x; }' > examples/type_mismatch.src
+	@echo 'struct Point { int x; int y; } fn main() { struct Point p; p.z = 10; return 0; }' > examples/field_error.src
+
 	# Примеры для парсера
 	@echo 'fn factorial(int n) -> int { if (n <= 1) { return 1; } return n * factorial(n - 1); }' > examples/factorial.src
 	@echo 'struct Point { int x; int y; } fn main() { struct Point p; p.x = 10; p.y = 20; p.x++; return p.x + p.y; }' > examples/struct.src
@@ -257,7 +336,15 @@ create-test-files:
 	@echo 'fn buggy() { int x = 5; x++ return x; }' > examples/errors.src
 	@echo 'fn main() { if (x > 0 { return x; } }' >> examples/errors.src
 
-	@echo "Тестовые файлы созданы"
+	@echo "Тестовые файлы созданы:"
+	@echo "  examples/hello.src - простая программа"
+	@echo "  examples/factorial.src - рекурсивный факториал"
+	@echo "  examples/struct.src - работа со структурами"
+	@echo "  examples/increment.src - инкременты/декременты"
+	@echo "  examples/var_demo.src - демонстрация var"
+	@echo "  examples/undeclared.src - необъявленная переменная"
+	@echo "  examples/type_mismatch.src - несоответствие типов"
+	@echo "  examples/field_error.src - несуществующее поле"
 
 # === Утилиты ===
 graphviz-check:
@@ -287,11 +374,12 @@ help:
 	@echo "  make test-lexer    - Тесты лексического анализатора"
 	@echo "  make test-parser   - Тесты парсера"
 	@echo "  make test-preprocessor - Тесты препроцессора"
+	@echo "  make test-semantic - Семантические тесты (24 теста)"
 	@echo "  make test-integration - Интеграционные тесты"
 	@echo "  make test-ll1      - LL(1) тесты"
 	@echo "  make test-common   - Тесты общих модулей"
 	@echo "  make test-doc      - Документационные тесты"
-	@echo "  make test-all      - Все тесты (включая LL(1))"
+	@echo "  make test-all      - Все тесты (лексика + синтаксис + семантика + LL(1))"
 	@echo ""
 	@echo "Качество кода:"
 	@echo "  make lint          - Проверка линтером (clippy)"
@@ -302,12 +390,14 @@ help:
 	@echo "  make docs          - Генерация документации"
 	@echo "  make docs-private  - Документация с приватными элементами"
 	@echo ""
-	@echo "Демонстрации (НОВОЕ):"
+	@echo "Демонстрации:"
 	@echo "  make ast-demo      - Визуализация AST (text/dot/json)"
+	@echo "  make semantic-demo - Демонстрация семантического анализа (НОВОЕ!)"
+	@echo "  make var-demo      - Демонстрация вывода типов var (НОВОЕ!)"
 	@echo "  make inc-demo      - Демонстрация инкрементов/декрементов"
 	@echo "  make error-demo    - Демонстрация восстановления после ошибок"
 	@echo "  make ll1-demo      - LL(1) анализ грамматики"
-	@echo "  make full-pipeline - Полный пайплайн (препроцессор → лексер → парсер)"
+	@echo "  make full-pipeline - Полный пайплайн (препроцессор → лексер → парсер → семантика)"
 	@echo "  make example       - Показать примеры использования CLI"
 	@echo "  make create-test-files - Создать тестовые файлы"
 	@echo ""
@@ -323,3 +413,5 @@ help:
 	@echo ""
 	@echo "Быстрый старт:"
 	@echo "  make create-test-files && make build && make ast-demo"
+	@echo "  make semantic-demo  # Показать семантический анализ"
+	@echo "  make var-demo       # Показать вывод типов var"

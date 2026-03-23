@@ -9,6 +9,7 @@ pub mod common;
 pub mod lexer;
 pub mod parser;
 pub mod preprocessor;
+pub mod semantic;
 pub mod utils;
 
 pub use common::{Position, Token, TokenKind};

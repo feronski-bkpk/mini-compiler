@@ -426,7 +426,13 @@ impl Parser {
                 | TokenKind::KwVoid
                 | TokenKind::KwString
                 | TokenKind::KwStruct
-        )
+        ) || {
+            if let TokenKind::Identifier(name) = &self.peek().kind {
+                name == "var"
+            } else {
+                false
+            }
+        }
     }
 
     /// Парсит объявление функции: fn name(params) -> Type { ... }
@@ -715,6 +721,10 @@ impl Parser {
                 self.advance();
                 Type::String
             }
+            TokenKind::Identifier(name) if name == "var" => {
+                self.advance();
+                Type::Inferred
+            }
             TokenKind::KwStruct => {
                 self.advance();
 
@@ -740,7 +750,7 @@ impl Parser {
                 return Err(
                     ParseError::new(pos, ParseErrorKind::UnknownType)
                         .with_found(token.lexeme)
-                        .with_suggestion("Используйте один из встроенных типов: int, float, bool, void, string, или struct Имя".to_string()),
+                        .with_suggestion("Используйте один из встроенных типов: int, float, bool, void, string, struct Имя, или var".to_string()),
                 );
             }
         };

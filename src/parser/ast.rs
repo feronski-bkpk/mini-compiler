@@ -2,6 +2,7 @@
 //!
 //! Этот модуль определяет все узлы AST, представляющие структуру программы.
 
+use crate::common::position::Position;
 use std::fmt;
 
 /// Базовый узел AST с информацией о позиции в исходном коде
@@ -118,6 +119,7 @@ pub enum Type {
     Void,
     String,
     Struct(String),
+    Inferred,
 }
 
 impl fmt::Display for Type {
@@ -129,6 +131,7 @@ impl fmt::Display for Type {
             Type::Void => write!(f, "void"),
             Type::String => write!(f, "string"),
             Type::Struct(name) => write!(f, "struct {}", name),
+            Type::Inferred => write!(f, "var"),
         }
     }
 }
@@ -577,5 +580,50 @@ impl fmt::Display for AssignmentOp {
             AssignmentOp::MulAssign => write!(f, "*="),
             AssignmentOp::DivAssign => write!(f, "/="),
         }
+    }
+}
+
+impl Node {
+    /// Возвращает позицию узла
+    pub fn position(&self) -> Position {
+        Position::new(self.line, self.column)
+    }
+}
+
+impl Expression {
+    /// Возвращает позицию выражения (узел, с которого начинается выражение)
+    pub fn node_position(&self) -> Position {
+        match self {
+            Expression::Literal(lit) => lit.node.position(),
+            Expression::Identifier(ident) => ident.node.position(),
+            Expression::Binary(binary) => binary.node.position(),
+            Expression::Unary(unary) => unary.node.position(),
+            Expression::Assignment(assign) => assign.node.position(),
+            Expression::Call(call) => call.node.position(),
+            Expression::StructAccess(access) => access.node.position(),
+            Expression::Grouped(grouped) => grouped.node.position(),
+        }
+    }
+}
+
+impl Type {
+    /// Проверяет, является ли тип void
+    pub fn is_void(&self) -> bool {
+        matches!(self, Type::Void)
+    }
+
+    /// Проверяет, является ли тип числовым
+    pub fn is_numeric(&self) -> bool {
+        matches!(self, Type::Int | Type::Float)
+    }
+
+    /// Проверяет, является ли тип целочисленным
+    pub fn is_integer(&self) -> bool {
+        matches!(self, Type::Int)
+    }
+
+    /// Проверяет, является ли тип логическим
+    pub fn is_boolean(&self) -> bool {
+        matches!(self, Type::Bool)
     }
 }

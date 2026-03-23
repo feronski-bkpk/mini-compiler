@@ -26,7 +26,7 @@ FieldDecl       = Type Identifier ";";
 VarDecl         = Type Identifier [ "=" Expression ] [ ";" ];
 
 // === Типы ===
-Type            = BasicType | StructType;
+Type            = BasicType | StructType | "var";
 BasicType       = "int" | "float" | "bool" | "void" | "string";
 StructType      = "struct" Identifier;
 
