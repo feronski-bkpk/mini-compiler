@@ -103,8 +103,10 @@ impl DecoratedAstPrinter {
         let mut output = String::new();
 
         output.push_str(&self.format_indent());
-        output.push_str(&format!("FunctionDecl: {} -> {} [line {}]:\n",
-                                 func.name, func.return_type, func.node.line));
+        output.push_str(&format!(
+            "FunctionDecl: {} -> {} [line {}]:\n",
+            func.name, func.return_type, func.node.line
+        ));
 
         self.indent_level += 1;
 
@@ -133,7 +135,10 @@ impl DecoratedAstPrinter {
         let mut output = String::new();
 
         output.push_str(&self.format_indent());
-        output.push_str(&format!("StructDecl: {} [line {}]:\n", struct_decl.name, struct_decl.node.line));
+        output.push_str(&format!(
+            "StructDecl: {} [line {}]:\n",
+            struct_decl.name, struct_decl.node.line
+        ));
 
         self.indent_level += 1;
         output.push_str(&self.format_indent());
@@ -182,7 +187,12 @@ impl DecoratedAstPrinter {
         }
     }
 
-    fn format_variable(&mut self, var: &VarDecl, _is_global: bool, symbol_table: &SymbolTable) -> String {
+    fn format_variable(
+        &mut self,
+        var: &VarDecl,
+        _is_global: bool,
+        symbol_table: &SymbolTable,
+    ) -> String {
         let mut output = String::new();
 
         output.push_str(&self.format_indent());
@@ -229,7 +239,10 @@ impl DecoratedAstPrinter {
     fn format_expression_stmt(&mut self, expr_stmt: &ExprStmt) -> String {
         let mut output = String::new();
         output.push_str(&self.format_indent());
-        output.push_str(&format!("Expr: {}\n", self.format_expression(&expr_stmt.expr)));
+        output.push_str(&format!(
+            "Expr: {}\n",
+            self.format_expression(&expr_stmt.expr)
+        ));
         output
     }
 
@@ -241,7 +254,10 @@ impl DecoratedAstPrinter {
 
         self.indent_level += 1;
         output.push_str(&self.format_indent());
-        output.push_str(&format!("Condition: {}\n", self.format_expression(&if_stmt.condition)));
+        output.push_str(&format!(
+            "Condition: {}\n",
+            self.format_expression(&if_stmt.condition)
+        ));
 
         output.push_str(&self.format_indent());
         output.push_str("Then branch:\n");
@@ -269,7 +285,10 @@ impl DecoratedAstPrinter {
 
         self.indent_level += 1;
         output.push_str(&self.format_indent());
-        output.push_str(&format!("Condition: {}\n", self.format_expression(&while_stmt.condition)));
+        output.push_str(&format!(
+            "Condition: {}\n",
+            self.format_expression(&while_stmt.condition)
+        ));
 
         output.push_str(&self.format_indent());
         output.push_str("Body:\n");
@@ -290,12 +309,18 @@ impl DecoratedAstPrinter {
 
         if let Some(init) = &for_stmt.init {
             output.push_str(&self.format_indent());
-            output.push_str(&format!("Init: {}", self.format_statement(init, symbol_table)));
+            output.push_str(&format!(
+                "Init: {}",
+                self.format_statement(init, symbol_table)
+            ));
         }
 
         if let Some(condition) = &for_stmt.condition {
             output.push_str(&self.format_indent());
-            output.push_str(&format!("Condition: {}\n", self.format_expression(condition)));
+            output.push_str(&format!(
+                "Condition: {}\n",
+                self.format_expression(condition)
+            ));
         }
 
         if let Some(update) = &for_stmt.update {
@@ -330,28 +355,46 @@ impl DecoratedAstPrinter {
             Expression::Literal(lit) => format!("{}", lit.value),
             Expression::Identifier(ident) => ident.name.clone(),
             Expression::Binary(binary) => {
-                format!("({} {} {})",
-                        self.format_expression(&binary.left),
-                        binary.operator,
-                        self.format_expression(&binary.right))
+                format!(
+                    "({} {} {})",
+                    self.format_expression(&binary.left),
+                    binary.operator,
+                    self.format_expression(&binary.right)
+                )
             }
             Expression::Unary(unary) => {
-                format!("({}{})", unary.operator, self.format_expression(&unary.operand))
+                format!(
+                    "({}{})",
+                    unary.operator,
+                    self.format_expression(&unary.operand)
+                )
             }
             Expression::Assignment(assign) => {
-                format!("({} {} {})",
-                        self.format_expression(&assign.target),
-                        assign.operator,
-                        self.format_expression(&assign.value))
+                format!(
+                    "({} {} {})",
+                    self.format_expression(&assign.target),
+                    assign.operator,
+                    self.format_expression(&assign.value)
+                )
             }
             Expression::Call(call) => {
-                let args: Vec<String> = call.arguments.iter()
+                let args: Vec<String> = call
+                    .arguments
+                    .iter()
                     .map(|arg| self.format_expression(arg))
                     .collect();
-                format!("{}({})", self.format_expression(&call.callee), args.join(", "))
+                format!(
+                    "{}({})",
+                    self.format_expression(&call.callee),
+                    args.join(", ")
+                )
             }
             Expression::StructAccess(access) => {
-                format!("{}.{}", self.format_expression(&access.object), access.field)
+                format!(
+                    "{}.{}",
+                    self.format_expression(&access.object),
+                    access.field
+                )
             }
             Expression::Grouped(grouped) => {
                 format!("({})", self.format_expression(&grouped.expr))

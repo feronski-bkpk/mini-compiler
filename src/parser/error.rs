@@ -200,9 +200,9 @@ impl fmt::Display for ParseError {
         }
 
         if let Some(suggestion) = &self.suggestion {
-            write!(f, "\n  💡 Совет: {}", suggestion)?;
+            write!(f, "\n  Совет: {}", suggestion)?;
         } else if let Some(suggestion) = self.generate_suggestion() {
-            write!(f, "\n  💡 Совет: {}", suggestion)?;
+            write!(f, "\n  Совет: {}", suggestion)?;
         }
 
         if self.is_cascading {
@@ -294,7 +294,7 @@ impl ErrorMetrics {
 
 impl fmt::Display for ErrorMetrics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "📊 Метрики ошибок:")?;
+        writeln!(f, "Метрики ошибок:")?;
         writeln!(f, "  Обнаружено ошибок: {}", self.total_errors_detected)?;
         writeln!(f, "  Фактических ошибок: {}", self.actual_errors)?;
         writeln!(f, "  Предотвращено каскадных: {}", self.cascading_prevented)?;
@@ -338,7 +338,7 @@ impl ParseErrors {
         Self {
             errors: Vec::new(),
             metrics: ErrorMetrics::new(),
-            max_errors: Some(50), // По умолчанию останавливаемся после 50 ошибок
+            max_errors: Some(50),
         }
     }
 
@@ -353,7 +353,6 @@ impl ParseErrors {
     }
 
     pub fn add(&mut self, error: ParseError) {
-        // Проверяем лимит ошибок
         if let Some(max) = self.max_errors {
             if self.errors.len() >= max {
                 return;
@@ -377,19 +376,16 @@ impl ParseErrors {
             return false;
         }
 
-        // Проверяем, была ли уже ошибка на этой или предыдущей позиции
         let current_pos = (error.position.line, error.position.column);
 
         for prev_error in &self.errors {
             let prev_pos = (prev_error.position.line, prev_error.position.column);
 
-            // Если ошибка на той же строке и близко по колонке (в пределах 5 символов)
             if prev_pos.0 == current_pos.0 && (current_pos.1 as i32 - prev_pos.1 as i32).abs() <= 5
             {
                 return true;
             }
 
-            // Если ошибка на предыдущей строке
             if prev_pos.0 + 1 == current_pos.0 {
                 return true;
             }
