@@ -1,0 +1,102 @@
+{
+  "functions": [
+    {
+      "name": "factorial",
+      "return_type": "int",
+      "parameters": [
+        {
+          "name": "n",
+          "typ": "int"
+        }
+      ],
+      "locals": [],
+      "blocks": [
+        {
+          "label": "L3",
+          "instructions": [
+            "t2 = SUB n, 1",
+            "PARAM 0, t2",
+            "t3 = CALL factorial, t2",
+            "t4 = MUL n, t3",
+            "RETURN t4"
+          ],
+          "predecessors": [
+            "L1"
+          ],
+          "successors": []
+        },
+        {
+          "label": "L4",
+          "instructions": [],
+          "predecessors": [],
+          "successors": []
+        },
+        {
+          "label": "L2",
+          "instructions": [
+            "RETURN 1"
+          ],
+          "predecessors": [],
+          "successors": []
+        },
+        {
+          "label": "L1",
+          "instructions": [
+            "t1 = CMP_LE n, 1",
+            "JUMP_IF_NOT t1, L2",
+            "JUMP L3"
+          ],
+          "predecessors": [],
+          "successors": [
+            "L2",
+            "L3"
+          ]
+        }
+      ],
+      "entry_block": "L1",
+      "exit_blocks": []
+    },
+    {
+      "name": "main",
+      "return_type": "int",
+      "parameters": [],
+      "locals": [],
+      "blocks": [
+        {
+          "label": "L2",
+          "instructions": [
+            "PARAM 0, 5",
+            "t1 = CALL factorial, 5",
+            "RETURN t1"
+          ],
+          "predecessors": [],
+          "successors": []
+        },
+        {
+          "label": "L1",
+          "instructions": [],
+          "predecessors": [],
+          "successors": []
+        }
+      ],
+      "entry_block": "L1",
+      "exit_blocks": []
+    }
+  ],
+  "globals": [],
+  "statistics": {
+    "total_instructions": 12,
+    "basic_block_count": 6,
+    "temporary_count": 4,
+    "instruction_counts": {
+      "MUL": 1,
+      "CMP_LE": 1,
+      "JUMP_IF_NOT": 1,
+      "JUMP": 1,
+      "SUB": 1,
+      "PARAM": 2,
+      "RETURN": 3,
+      "CALL": 2
+    }
+  }
+}

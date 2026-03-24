@@ -867,7 +867,7 @@ mod tests {
         scanner.skip_whitespace();
 
         match scanner.skip_comments() {
-            Ok(_) => println!("Комментарий успешно пропущен (но он незавершенный!?)"),
+            Ok(_) => println!("Комментарий успешно пропущен"),
             Err(e) => println!("Ошибка незавершенного комментария: {}", e),
         }
 

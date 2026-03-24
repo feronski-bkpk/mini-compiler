@@ -1,6 +1,6 @@
 # Mini Compiler
 
-**Минимальный компилятор C-подобного языка, написанный на Rust с полной поддержкой LL(1) грамматики, семантическим анализом и восстановлением после ошибок.**
+**Минимальный компилятор C-подобного языка, написанный на Rust с полной поддержкой LL(1) грамматики, семантическим анализом, генерацией промежуточного представления (IR) и восстановлением после ошибок.**
 
 ## Оглавление
 
@@ -10,10 +10,12 @@
 - [Makefile команды](#makefile-команды)
 - [Быстрый старт](#быстрый-старт)
 - [Использование CLI](#использование-cli)
+- [Генерация промежуточного представления (IR)](#генерация-промежуточного-представления-ir)
 - [Семантический анализ](#семантический-анализ)
 - [Вывод типов (var)](#вывод-типов-var)
+- [Оптимизации IR](#оптимизации-ir)
 - [Демонстрации](#демонстрации)
-- [Визуализация AST](#визуализация-ast)
+- [Визуализация AST и CFG](#визуализация-ast-и-cfg)
 - [Тестирование](#тестирование)
 - [Документация](#документация)
 - [Архитектура](#архитектура)
@@ -27,25 +29,14 @@
 ### Реализовано
 - **Лексический анализатор** - полное распознавание 30+ типов токенов
 - **Препроцессор** - удаление комментариев, макросы, условная компиляция
-- **Точное позиционирование** - строка:колонка для всех ошибок
-- **Восстановление после ошибок** - продолжение анализа после ошибок
-- **Поддержка комментариев** - `//` и `/* */` (включая вложенные)
-- **Escape-последовательности** - `\n`, `\t`, `\r`, `\\`, `\"`, `\'`
 - **Формальная грамматика** - полная EBNF спецификация языка
 - **Парсер с рекурсивным спуском** - LL(1) грамматика
-- **AST (Abstract Syntax Tree)** - полная иерархия узлов
-- **Поддержка функций** - с возвращаемыми типами (`->`)
-- **Поддержка структур** - с доступом к полям (`.`)
-- **Инкременты и декременты** - префиксные и постфиксные (`++x`, `x++`, `--x`, `x--`)
-- **Приоритет операторов** - правильная обработка 10 уровней
 - **Семантический анализатор** - проверка типов, областей видимости, вызовов функций
-- **Вывод типов** - автоматическое определение типов через `var`
-- **Таблица символов** - иерархическая с поддержкой вложенных областей
 - **Размещение в памяти** - вычисление размеров и смещений для переменных и полей структур
-- **Визуализация AST** - текстовый, DOT и JSON форматы
-- **Визуализация таблицы символов** - вывод с размерами и смещениями
-- **LL(1) анализ** - вычисление First/Follow множеств и проверка грамматики
-- **Метрики ошибок** - качество восстановления, предотвращение каскадных ошибок
+- **Генерация промежуточного представления (IR)** - трехадресный код для всех конструкций
+- **Граф потока управления (CFG)** - построение и визуализация
+- **Оптимизации IR** - свертка констант, алгебраические упрощения, удаление мертвого кода
+- **Визуализация AST и CFG** - текстовый, DOT и JSON форматы
 - **Обработка ошибок** - детальные сообщения на русском языке с предложениями по исправлению
 
 ### Технические характеристики
@@ -53,7 +44,7 @@
 - **Обработка ошибок**: Детальные сообщения с восстановлением
 - **Поддержка кодировок**: UTF-8
 - **Окончания строк**: Unix (`\n`) и Windows (`\r\n`)
-- **Тесты**: 124+ тестов (unit + интеграционные + LL(1) + семантические)
+- **Тесты**: 70+ тестов
 
 ## Структура проекта
 
@@ -87,6 +78,14 @@ mini-compiler/
 │   │   ├── type_system.rs        # Система типов
 │   │   ├── errors.rs             # Семантические ошибки
 │   │   └── pretty_printer.rs     # Вывод декорированного AST
+│   ├── ir/                       # Промежуточное представление
+│   │   ├── mod.rs                # Экспорт модуля
+│   │   ├── ir_instructions.rs    # Определения инструкций IR
+│   │   ├── ir_generator.rs       # Генератор IR из AST
+│   │   ├── basic_block.rs        # Базовые блоки и CFG
+│   │   ├── control_flow.rs       # Построение CFG
+│   │   ├── ir_printer.rs         # Вывод IR (текст, DOT, JSON)
+│   │   └── peephole_optimizer.rs # Оптимизации IR
 │   ├── preprocessor/             # Препроцессор
 │   │   ├── mod.rs                # Основной модуль
 │   │   ├── macros.rs             # Таблица макросов
@@ -97,22 +96,17 @@ mini-compiler/
 ├── tests/                        # Тестовые файлы
 │   ├── lexer/                    # Тесты лексера
 │   ├── parser/                   # Тесты парсера
-│   │   ├── valid/                # Корректные программы
-│   │   ├── invalid/              # Некорректные программы
-│   │   └── ast_output/           # Ожидаемые результаты
-│   ├── lexer_tests.rs            # 7 тестов лексера
-│   ├── parser_tests.rs           # 27 тестов парсера
-│   ├── preprocessor_tests.rs     # 8 тестов препроцессора
-│   ├── integration_tests.rs      # 2 интеграционных теста
-│   ├── ll1_tests.rs              # 2 теста LL(1) анализа
-│   └── semantic_tests.rs         # 24 теста семантического анализа
-├── examples/                     # Демонстративные файлы
-│   ├── hello.src                 # Простая программа
-│   ├── factorial.src             # Рекурсивный факториал
-│   ├── struct.src                # Работа со структурами
-│   ├── increments.src            # Демонстрация инкрементов
-│   ├── var_demo.src              # Демонстрация вывода типов
-│   └── errors.src                # Файл с ошибками для демонстрации
+│   ├── ir/                       # Тесты IR
+│   ├── lexer_tests.rs            # Тесты лексера
+│   ├── parser_tests.rs           # Тесты парсера
+│   ├── preprocessor_tests.rs     # Тесты препроцессора
+│   ├── integration_tests.rs      # Интеграционные тесты
+│   ├── ll1_tests.rs              # Тесты LL(1) анализа
+│   ├── semantic_tests.rs         # Тесты семантического анализа
+│   ├── ir_tests.rs               # Тесты IR генерации
+│   ├── ir_optimization_tests.rs  # Тесты оптимизаций
+│   └── bugs_tests.rs             # Тесты исправленных ошибок
+├── examples/                     # Демонстрационные файлы
 ├── docs/                         # Документация
 │   ├── CHECKLIST.md              # Чек-лист по спринтам
 │   ├── language_spec.md          # Спецификация языка
@@ -131,7 +125,7 @@ mini-compiler/
 - **Rust 1.70 или новее**
 - **Cargo** (менеджер пакетов Rust)
 - **Git** (для клонирования репозитория)
-- **Graphviz** (опционально, для визуализации AST)
+- **Graphviz** (опционально, для визуализации AST и CFG)
 
 ### Установка
 
@@ -185,21 +179,22 @@ make test-preprocessor       # Тесты препроцессора
 make test-integration        # Интеграционные тесты
 make test-ll1                # LL(1) тесты
 make test-semantic           # Семантические тесты
-make test-common             # Тесты общих модулей
-make test-doc                # Документационные тесты
-make test-all                # Все тесты (включая LL(1) и семантику)
+make test-ir                 # Тесты IR генерации
+make test-ir-opt             # Тесты оптимизаций
+make test-all                # Все тесты
 ```
 
 ### Демонстрации
 ```bash
 make ast-demo                # Визуализация AST
+make ir-demo                 # Демонстрация IR генерации
 make inc-demo                # Демонстрация инкрементов
 make error-demo              # Восстановление после ошибок
 make ll1-demo                # LL(1) анализ грамматики
 make semantic-demo           # Демонстрация семантического анализа
 make var-demo                # Демонстрация вывода типов var
+make optimization-demo       # Демонстрация оптимизаций
 make full-pipeline           # Полный пайплайн
-make example                 # Примеры использования CLI
 ```
 
 ### Качество кода
@@ -215,17 +210,6 @@ make docs                    # Генерация документации
 make docs-private            # Документация с приватными элементами
 ```
 
-### Анализ и утилиты
-```bash
-make udeps                   # Неиспользуемые зависимости
-make bench                   # Бенчмарки
-make coverage                # Покрытие кода
-make graphviz-check          # Проверка Graphviz
-make install-deps            # Установка зависимостей
-make create-test-files       # Создание тестовых файлов
-make help                    # Справка по Makefile
-```
-
 ## Быстрый старт
 
 ### 1. Быстрый запуск всех демонстраций
@@ -239,50 +223,54 @@ make build
 
 # Запустить все демонстрации
 make ast-demo
+make ir-demo
 make inc-demo
 make error-demo
 make ll1-demo
 make semantic-demo
 make var-demo
+make optimization-demo
 make full-pipeline
 ```
 
 ### 2. Полный пайплайн компиляции вручную
 
 ```bash
-# Создайте тестовый файл с инкрементами и var
-cat > examples/demo.src << 'EOF'
-#define MAX 100
-#define DEBUG 1
+# Создайте тестовый файл
+cat > test.src << 'EOF'
+fn factorial(int n) -> int {
+    if (n <= 1) {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
 
-fn main() {
-    int x = 5;
-    x++;                    // Постфиксный инкремент
-    ++x;                    // Префиксный инкремент
-    var y = x++ + ++x;      // var с выводом типа
-    
-    #ifdef DEBUG
-        var debug_var = y;
-    #endif
-    
-    return y;
+fn main() -> int {
+    return factorial(5);
 }
 EOF
 
 # Шаг 1: Препроцессор
-cargo run -- preprocess --input examples/demo.src --output examples/processed.src --show
+cargo run -- preprocess --input test.src --output processed.src --show
 
 # Шаг 2: Лексический анализ
-cargo run -- lex --input examples/processed.src --verbose
+cargo run -- lex --input processed.src --verbose
 
 # Шаг 3: Синтаксический анализ
-cargo run -- parse --input examples/processed.src --ast-format text
+cargo run -- parse --input processed.src --ast-format text
 
 # Шаг 4: Семантический анализ
-cargo run -- semantic --input examples/processed.src --show-symbols
+cargo run -- semantic --input processed.src --show-symbols
 
-# Шаг 5: Полный пайплайн одной командой
-cargo run -- full --input examples/demo.src --ast-format dot --output ast.dot --show-metrics
+# Шаг 5: Генерация IR
+cargo run -- ir --input processed.src --ir-format text
+
+# Шаг 6: IR с оптимизациями
+cargo run -- ir --input processed.src --ir-format text --optimize --verbose
+
+# Шаг 7: Полный пайплайн одной командой
+cargo run -- full --input test.src --ast-format dot --output ast.dot --show-metrics
 ```
 
 ## Использование CLI
@@ -310,6 +298,13 @@ cargo run -- semantic --input file.src
 cargo run -- semantic --input file.src --show-symbols
 cargo run -- semantic --input file.src --show-ast
 cargo run -- semantic --input file.src --show-layout
+
+# Генерация промежуточного представления (IR)
+cargo run -- ir --input file.src --ir-format text
+cargo run -- ir --input file.src --ir-format dot --output cfg.dot
+cargo run -- ir --input file.src --ir-format json --output ir.json
+cargo run -- ir --input file.src --stats
+cargo run -- ir --input file.src --optimize --verbose
 
 # Препроцессор
 cargo run -- preprocess --input file.src --output processed.src --show
@@ -345,6 +340,162 @@ cargo run -- test
 --ast-format text  # Текстовый AST с отступами
 --ast-format dot   # Graphviz DOT для визуализации
 --ast-format json  # JSON для машинной обработки
+
+# Форматы для IR
+--ir-format text   # Текстовый IR (по умолчанию)
+--ir-format dot    # Graphviz DOT для визуализации CFG
+--ir-format json   # JSON для машинной обработки
+```
+
+## Генерация промежуточного представления (IR)
+
+### Набор инструкций IR
+
+IR использует формат трехадресного кода с поддержкой:
+
+| Категория | Инструкции |
+|-----------|------------|
+| **Арифметические** | `ADD`, `SUB`, `MUL`, `DIV`, `MOD`, `NEG` |
+| **Логические** | `AND`, `OR`, `NOT`, `XOR` |
+| **Сравнения** | `CMP_EQ`, `CMP_NE`, `CMP_LT`, `CMP_LE`, `CMP_GT`, `CMP_GE` |
+| **Память** | `LOAD`, `STORE`, `ALLOCA`, `GEP` |
+| **Управление потоком** | `JUMP`, `JUMP_IF`, `JUMP_IF_NOT`, `LABEL`, `PHI` |
+| **Функции** | `CALL`, `RETURN`, `PARAM` |
+| **Данные** | `MOVE` |
+
+### Типы операндов
+
+- **Временные переменные**: `t1`, `t2`, ...
+- **Переменные**: `x`, `y`, ...
+- **Литералы**: `42`, `3.14`, `true`, `"hello"`
+- **Метки**: `L1`, `L2`, ...
+- **Адреса**: `[t1]`, `[t2+4]`
+
+### Команды IR
+
+```bash
+# Генерация IR в текстовом формате
+cargo run -- ir --input factorial.src --ir-format text
+
+# Генерация IR с оптимизациями
+cargo run -- ir --input factorial.src --ir-format text --optimize
+
+# Статистика IR
+cargo run -- ir --input factorial.src --stats
+
+# Визуализация графа потока управления (CFG)
+cargo run -- ir --input factorial.src --ir-format dot --output cfg.dot
+dot -Tpng cfg.dot -o cfg.png
+
+# Вывод в JSON
+cargo run -- ir --input factorial.src --ir-format json --output ir.json
+```
+
+### Примеры IR
+
+**If-else:**
+```
+function main: int ()
+  locals:
+    x: int
+    y: int
+
+  L1:
+    t1 = CMP_GT x, 0
+    JUMP_IF_NOT t1, L2
+    JUMP L3
+
+  L2:
+    y = MOVE 10
+    JUMP L4
+
+  L3:
+    y = MOVE 20
+    JUMP L4
+
+  L4:
+    RETURN y
+```
+
+**While цикл:**
+```
+function main: int ()
+  locals:
+    i: int
+    sum: int
+
+  L2:
+    t1 = CMP_LT i, 5
+    JUMP_IF_NOT t1, L4
+    JUMP L3
+
+  L3:
+    t2 = ADD sum, i
+    sum = MOVE t2
+    t3 = ADD i, 1
+    i = MOVE t3
+    JUMP L2
+
+  L4:
+    RETURN sum
+```
+
+**Рекурсивный факториал:**
+```
+function factorial: int (int n)
+  L1:
+    t1 = CMP_LE n, 1
+    JUMP_IF_NOT t1, L2
+    JUMP L3
+
+  L2:
+    RETURN 1
+
+  L3:
+    t2 = SUB n, 1
+    PARAM 0, t2
+    t3 = CALL factorial, t2
+    t4 = MUL n, t3
+    RETURN t4
+```
+
+## Оптимизации IR
+
+### Поддерживаемые оптимизации
+
+| Оптимизация | Пример |
+|-------------|--------|
+| **Свертка констант** | `3 + 4 → 7` |
+| **Алгебраические упрощения** | `x + 0 → x`, `x * 1 → x`, `x * 0 → 0` |
+| **Удаление мертвого кода** | Удаление неиспользуемых переменных |
+| **Сцепление переходов** | `JUMP L1; L1: JUMP L2 → JUMP L2` |
+
+### Пример оптимизации
+
+**До оптимизации:**
+```
+t1 = ADD x, 0
+t2 = MUL t1, 1
+t3 = CMP_GT t2, 5
+JUMP_IF t3, L1
+JUMP L2
+```
+
+**После оптимизации:**
+```
+t1 = CMP_GT x, 5
+JUMP_IF t1, L1
+JUMP L2
+```
+
+### Запуск оптимизаций
+
+```bash
+# Генерация IR с оптимизациями
+cargo run -- ir --input program.src --optimize
+
+# Подробный отчет об оптимизациях
+cargo run -- ir --input program.src --optimize --verbose
 ```
 
 ## Семантический анализ
@@ -360,71 +511,39 @@ cargo run -- semantic --input program.src
 # Вывод таблицы символов
 cargo run -- semantic --input program.src --show-symbols
 
-# Вывод с размерами и смещениями (SYM-5)
+# Вывод с размерами и смещениями
 cargo run -- semantic --input program.src --show-symbols --show-layout
 
-# Вывод декорированного AST
+# Вывод декорированного AST (с типами)
 cargo run -- semantic --input program.src --show-ast
 ```
 
-### Примеры семантических ошибок
+### Декорированное AST
 
-**Необъявленная переменная:**
-```c
-fn main() -> int {
-    int x = y + 5;  // y не объявлена
-    return x;
-}
+```bash
+cargo run -- semantic --input factorial.src --show-ast
 ```
 
 Вывод:
 ```
-семантическая ошибка: необъявленный идентификатор
-  --> строка 2, столбец 13
-  |
-  | Переменная 'y' не объявлена
-  |
-  | совет: Объявите 'y' перед использованием
-```
+Program [global scope]:
+  Symbol Table:
+    factorial: fn(int) -> int функция
+    main: fn() -> int функция
 
-**Несоответствие типов:**
-```c
-fn main() -> int {
-    int x = 3.14;  // float в int
-    return x;
-}
-```
-
-Вывод:
-```
-семантическая ошибка: несоответствие типов при присваивании
-  --> строка 2, столбец 13
-  |
-  | ожидалось: int
-  | получено: float
-  |
-  | совет: Используйте значение типа int или выполните явное приведение
-```
-
-**Ошибка вызова функции:**
-```c
-fn add(int a, int b) -> int {
-    return a + b;
-}
-
-fn main() -> int {
-    return add(5);  // не хватает аргумента
-}
-```
-
-Вывод:
-```
-семантическая ошибка: несоответствие количества аргументов
-  --> строка 6, столбец 12
-  |
-  | Функция 'add' ожидает 2 аргументов, получено 1
-  |
-  | совет: Функция объявлена как add (int, int) -> int
+  FunctionDecl: factorial -> int [line 1]:
+    Parameters:
+      - n: int
+    Body [type checked]:
+      Block [line 1]:
+        IfStmt [line 2]:
+          Condition: (n <= 1) [type: bool]
+          Then branch:
+            Block [line 2]:
+              Return: 1 [type: int]
+          Else branch:
+            Block [line 4]:
+              Return: (n * factorial((n - 1))) [type: int]
 ```
 
 ## Вывод типов (var)
@@ -453,127 +572,63 @@ var s = "hello"; // выводится string
    x = 3.14;     // Ошибка: int != float
    ```
 
-3. **Поддержка в циклах:**
-   ```c
-   for (var i = 0; i < 10; i = i + 1) {
-       // i: int
-   }
-   ```
+## Демонстрации
 
-### Пример с var
+### Демонстрация IR генерации
 ```bash
-# Создайте файл var_demo.src
-cat > var_demo.src << 'EOF'
-fn main() -> int {
-    var x = 42;
-    var y = 3.14;
-    var z = true;
-    var s = "hello";
-    
-    x = 100;
-    y = 2.71;
-    
-    return 0;
-}
-EOF
-
-# Запустите семантический анализ
-cargo run -- semantic --input var_demo.src --show-symbols
+make ir-demo
+# или
+cargo run -- ir --input examples/factorial.src --ir-format text --stats
 ```
 
-Вывод таблицы символов покажет выведенные типы.
-
-## Демонстрации
+### Демонстрация оптимизаций
+```bash
+make optimization-demo
+# или
+cargo run -- ir --input examples/simple_arith.src --optimize --verbose
+```
 
 ### Демонстрация инкрементов
 ```bash
 make inc-demo
-# или
 cargo run -- inc-demo
 ```
-
-Показывает:
-- Разницу между префиксными и постфиксными операторами
-- Лексический анализ с подсчетом токенов `++` и `--`
-- Построение AST с инкрементами
-- Примеры выражений: `x++ + ++x`
 
 ### Демонстрация семантического анализа
 ```bash
 make semantic-demo
-# или
 cargo run -- semantic --input examples/errors.src --show-symbols
 ```
-
-Показывает:
-- Проверку типов
-- Обнаружение необъявленных переменных
-- Проверку вызовов функций
-- Детальные сообщения об ошибках на русском языке
 
 ### Демонстрация вывода типов (var)
 ```bash
 make var-demo
-# или
 cargo run -- semantic --input examples/var_demo.src --show-symbols --show-layout
 ```
-
-Показывает:
-- Автоматический вывод типов
-- Размеры и смещения переменных в памяти
-- Проверку совместимости при присваивании
 
 ### Демонстрация восстановления после ошибок
 ```bash
 make error-demo
-# или
 cargo run -- error-demo --input examples/errors.src --max-errors 50
 ```
-
-Показывает:
-- Множественные синтаксические ошибки
-- Предложения по исправлению
-- Метрики ошибок (total, actual, cascading)
-- AST построен несмотря на ошибки
 
 ### LL(1) анализ грамматики
 ```bash
 make ll1-demo
-# или
 cargo run -- ll1 --show-first --show-follow
 ```
-
-Показывает:
-- First множества для всех нетерминалов
-- Follow множества
-- Проверка LL(1) свойств
-- Подтверждение корректности грамматики
 
 ### Полный пайплайн
 ```bash
 make full-pipeline
-# или
 cargo run -- full --input examples/full_demo.src --show-metrics
 ```
 
-## Визуализация AST
+## Визуализация AST и CFG
 
-### Текстовый формат
+### Текстовый формат AST
 ```bash
 cargo run -- parse --input examples/factorial.src
-```
-
-Пример вывода с инкрементами:
-```
-Program [line 1]:
-  FunctionDecl: main -> int [line 1]:
-    Parameters: []
-    Block [line 1]:
-      VarDecl: int x = 5
-      Expr: (x++)
-      Expr: (++x)
-      VarDecl: int y = (x++) + (++z)
-      Return: y
 ```
 
 ### Декорированное AST с типами
@@ -581,39 +636,25 @@ Program [line 1]:
 cargo run -- semantic --input examples/factorial.src --show-ast
 ```
 
-Пример вывода:
-```
-Program [global scope]:
-  Symbol Table:
-    Global:
-      factorial: function(int) -> int
-      main: function() -> int
-
-  FunctionDecl: factorial -> int [line 1]:
-    Parameters:
-      - n: int
-    Body [type checked]:
-      Block [line 2]:
-        IfStmt:
-          Condition: (n <= 1) [type: bool]
-          Then branch:
-            Return: 1 [type: int]
-        Return: (n * factorial(n - 1)) [type: int]
-```
-
-### Graphviz DOT формат
+### Graphviz DOT формат для AST
 ```bash
-# Генерация DOT файла
 cargo run -- parse --input examples/struct.src --ast-format dot --output ast.dot
-
-# Визуализация (требуется Graphviz)
 dot -Tpng ast.dot -o ast.png
+```
+
+### Graphviz DOT формат для CFG
+```bash
+cargo run -- ir --input examples/if_else.src --ir-format dot --output cfg.dot
+dot -Tpng cfg.dot -o cfg.png
 ```
 
 ### JSON формат
 ```bash
-# Для машинной обработки
+# AST в JSON
 cargo run -- parse --input examples/hello.src --ast-format json --output ast.json
+
+# IR в JSON
+cargo run -- ir --input examples/factorial.src --ir-format json --output ir.json
 ```
 
 ## Тестирование
@@ -631,85 +672,40 @@ cargo test -- --nocapture
 make test-lexer
 make test-parser
 make test-semantic
+make test-ir
+make test-ir-opt
 make test-preprocessor
 make test-ll1
 make test-integration
-make test-common
 make test-all
 ```
 
-### Примеры тестов
+### Категории тестов
 
-**Семантический тест (типы):**
-```rust
-#[test]
-fn test_type_mismatch() {
-    let source = "fn main() { int x = 3.14; }";
-    let (valid, errors) = analyze(source);
-    assert!(!valid);
-    assert!(errors.contains(&SemanticErrorKind::AssignmentTypeMismatch));
-}
-```
+| Категория | Файлы | Описание |
+|-----------|-------|----------|
+| Лексический анализ | `lexer_tests.rs` | 7 тестов |
+| Синтаксический анализ | `parser_tests.rs` | 27 тестов |
+| Препроцессор | `preprocessor_tests.rs` | 8 тестов |
+| Семантический анализ | `semantic_tests.rs` | 24 теста |
+| LL(1) анализ | `ll1_tests.rs` | 2 теста |
+| IR генерация | `ir_tests.rs` | 7 тестов |
+| IR оптимизации | `ir_optimization_tests.rs` | 3 теста |
+| Golden tests | `ir_golden_tests.rs` | 8 тестов |
+| Исправленные ошибки | `bugs_tests.rs` | 4 теста |
+| Интеграционные | `integration_tests.rs` | 2 теста |
 
-**Семантический тест (var):**
-```rust
-#[test]
-fn test_var_type_inference() {
-    let source = r#"
-        fn main() {
-            var x = 42;
-            var y = 3.14;
-            var z = true;
-            var s = "hello";
-        }
-    "#;
-    let (valid, errors) = analyze(source);
-    assert!(valid);
-}
-```
+### Golden Tests
 
-**Тест восстановления после ошибок:**
-```rust
-#[test]
-fn test_error_recovery_missing_semicolon() {
-    let output = parse_string("fn main() { return 42 }");
-    assert!(output.has_errors());
-    assert!(output.ast.is_some());
-}
-```
-
-## Документация
-
-### Генерация документации
+Golden tests автоматически сравнивают сгенерированный IR с эталонными файлами:
 
 ```bash
-# Локальная документация
-cargo doc --open
+# Первый запуск - создает эталонные файлы
+cargo test --test ir_golden_tests
 
-# Документация с приватными элементами
-cargo doc --document-private-items --open
-
-# С помощью Make
-make docs
-make docs-private
+# Последующие запуски - проверяют соответствие
+cargo test --test ir_golden_tests
 ```
-
-### Ключевые документы
-
-1. **Спецификация языка** - `docs/language_spec.md`
-   - Полная грамматика в EBNF
-   - Типы данных и операторы
-   - Операторы инкремента/декремента
-   - **Вывод типов (var)**
-   - **Семантические правила**
-   - Примеры программ
-
-2. **Формальная грамматика** - `docs/grammar.md`
-   - Детальное описание всех правил
-   - Приоритет операторов (10 уровней)
-   - EBNF нотация
-   - LL(1) свойства
-   - **Тип var**
 
 ## Архитектура
 
@@ -744,7 +740,24 @@ make docs-private
           │
           ├──────────▶ Семантические ошибки
           │
-          └──────────▶ Вывод типов (var)
+          ▼
+   ┌──────────────┐
+   │ IR Generator │  ← Генерация промежуточного представления
+   └──────────────┘
+          │
+          ├──────────▶ Текстовый IR
+          │
+          ├──────────▶ Graphviz DOT (CFG)
+          │
+          ├──────────▶ JSON
+          │
+          ▼
+   ┌──────────────┐
+   │ Оптимизатор  │  ← Свертка констант, удаление мертвого кода
+   └──────────────┘
+          │
+          ▼
+   Оптимизированный IR
 ```
 
 ### Ключевые компоненты
@@ -774,31 +787,44 @@ make docs-private
 - Проверка структур и доступа к полям
 - Вывод типов для `var`
 - Вычисление размеров и смещений в памяти
-- Детальные сообщения об ошибках на русском языке
+
+#### Генератор IR (`src/ir/`)
+- Преобразование AST в трехадресный код
+- Построение базовых блоков и CFG
+- Поддержка всех конструкций языка
+- Сохранение информации о типах
+
+#### Оптимизатор IR (`src/ir/peephole_optimizer.rs`)
+- Свертка констант
+- Алгебраические упрощения
+- Удаление мертвого кода
+- Сцепление переходов
 
 ## LL(1) анализ
 
 ### First и Follow множества
 
-```rust
-// Пример вычисления First множеств
-First(E) = { "(", "id" }
-First(E') = { "+", "ε" }
-First(T) = { "(", "id" }
-First(T') = { "*", "ε" }
-First(F) = { "(", "id" }
+```bash
+cargo run -- ll1 --show-first --show-follow
 ```
 
-### Проверка LL(1)
+Вывод:
+```
+First множества:
+  First(E) = { "id" }
+  First(E') = { "+" }
+  First(T) = { "id" }
+  First(T') = { "*" }
+  First(F) = { "id" }
 
-```bash
-# Запуск LL(1) анализа
-make ll1-demo
+Follow множества:
+  Follow(E) = { ")" }
+  Follow(E') = { ")" }
+  Follow(T) = { "+" }
+  Follow(T') = { "+" }
+  Follow(F) = { "*" }
 
-# Вывод:
-# First множества: { "E": {"(", "id"}, "E'": {"+", "ε"}, ... }
-# Follow множества: { "E": {"$", ")"}, "E'": {"$", ")"}, ... }
-# Грамматика является LL(1)
+Грамматика является LL(1)
 ```
 
 ## Восстановление после ошибок
@@ -811,45 +837,28 @@ make ll1-demo
 
 ### Метрики ошибок
 
-```rust
-ErrorMetrics {
-    total_errors_detected: 50,       // Всего обнаружено
-    actual_errors: 2,                // Уникальных ошибок
-    cascading_prevented: 48,         // Предотвращено каскадных
-    recovered_errors: 49,            // Успешно восстановлено
-    recovery_quality: 0.98,          // Качество восстановления
-}
+```bash
+cargo run -- error-demo --input examples/errors.src --max-errors 10
 ```
 
-### Примеры сообщений
-
-**Синтаксические ошибки:**
+Вывод:
 ```
-program.src:10:5: ошибка: отсутствует ';' после return
-  Совет: Добавьте ';' в конце инструкции
-
-program.src:15:12: ошибка: неожиданная '}', найдено: '}'
-  Совет: Проверьте, нет ли лишней закрывающей скобки
-```
-
-**Семантические ошибки (на русском):**
-```
-семантическая ошибка: необъявленный идентификатор
-  --> строка 2, столбец 18
-  |
-  | Переменная 'value' не объявлена
-  |
-  | совет: Объявите 'value' перед использованием
+Метрики ошибок:
+  Обнаружено ошибок: 10
+  Фактических ошибок: 2
+  Предотвращено каскадных: 8
+  Успешно восстановлено: 10
+  Качество восстановления: 100.0%
 ```
 
 ## Поддерживаемые конструкции языка
 
 | Категория | Конструкции |
 |-----------|-------------|
-| **Функции** | Объявление, параметры, возвращаемые типы (`->`) |
+| **Функции** | Объявление, параметры, возвращаемые типы (`->`), рекурсия |
 | **Структуры** | Определение, поля, доступ (`.`), вложенность |
 | **Переменные** | Объявление, инициализация, присваивание, **вывод типов (`var`)** |
-| **Управление** | `if-else`, `while`, `for`, `break` |
+| **Управление** | `if-else`, `while`, `for` |
 | **Инкременты** | `++x`, `x++`, `--x`, `x--` |
 | **Выражения** | Арифметика, сравнения, логика |
 | **Препроцессор** | `#define`, `#ifdef`, `#ifndef`, `#else`, `#endif` |
@@ -866,5 +875,5 @@ program.src:15:12: ошибка: неожиданная '}', найдено: '}'
 - [Примеры использования](examples/)
 - [Чек-лист спринтов](docs/CHECKLIST.md)
 
-**Версия:** 0.3.0
+**Версия:** 0.4.0
 **Дата релиза:** Март 2026

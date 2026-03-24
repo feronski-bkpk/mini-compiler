@@ -1,7 +1,8 @@
 .PHONY: all build release check test test-lexer test-parser test-preprocessor test-semantic \
-        test-integration test-ll1 test-all clean docs help run-example ast-demo error-demo inc-demo \
-        ll1-demo semantic-demo var-demo full-pipeline lint fmt fmt-check udeps bench coverage \
-        graphviz-check install-deps create-test-files
+        test-ir test-ir-opt test-integration test-ll1 test-all clean docs help run-example \
+        ast-demo ir-demo semantic-demo var-demo inc-demo error-demo ll1-demo optimization-demo \
+        full-pipeline lint fmt fmt-check udeps bench coverage graphviz-check install-deps \
+        create-test-files
 
 CARGO = cargo
 RUSTFLAGS = -D warnings
@@ -41,6 +42,18 @@ test-semantic:
 	@echo "Запуск семантических тестов..."
 	$(CARGO) test semantic_tests -- --nocapture
 
+test-ir:
+	@echo "Запуск тестов генерации IR..."
+	$(CARGO) test --test ir_tests -- --nocapture
+
+test-ir-opt:
+	@echo "Запуск тестов оптимизаций IR..."
+	$(CARGO) test --test ir_optimization_tests -- --nocapture
+
+test-ir-golden:
+	@echo "Запуск golden тестов IR..."
+	$(CARGO) test --test ir_golden_tests -- --nocapture
+
 test-integration:
 	@echo "Запуск интеграционных тестов..."
 	$(CARGO) test integration -- --nocapture
@@ -57,7 +70,7 @@ test-doc:
 	@echo "Запуск документационных тестов..."
 	$(CARGO) test --doc
 
-test-all: test test-ll1 test-semantic test-doc
+test-all: test test-ir test-ir-opt test-ir-golden test-ll1 test-semantic test-doc
 	@echo "Все тесты пройдены!"
 
 # === Качество кода ===
@@ -86,7 +99,7 @@ docs-private:
 clean:
 	@echo "Очистка..."
 	$(CARGO) clean
-	@rm -rf target/ast-examples
+	@rm -rf target/ast-examples target/ir-examples
 
 # === Анализ ===
 udeps:
@@ -122,6 +135,58 @@ ast-demo:
 	@echo ""
 	@echo "JSON формат:"
 	./target/debug/minic parse --input target/ast-examples/simple.src --ast-format json | head -20
+
+ir-demo:
+	@echo "Демонстрация генерации промежуточного представления (IR)..."
+	@mkdir -p target/ir-examples
+	@echo 'fn main() -> int { int x = 5; int y = 10; int z = x + y; return z; }' > target/ir-examples/simple.src
+	@echo 'fn main() -> int { int x = 5; if (x > 0) { return 10; } else { return 20; } }' > target/ir-examples/if.src
+	@echo 'fn factorial(int n) -> int { if (n <= 1) { return 1; } else { return n * factorial(n - 1); } }' > target/ir-examples/factorial.src
+	@echo ""
+	@echo "=== Текстовый формат IR (простая арифметика) ==="
+	./target/debug/minic ir --input target/ir-examples/simple.src --ir-format text
+	@echo ""
+	@echo "=== Текстовый формат IR (if-else) ==="
+	./target/debug/minic ir --input target/ir-examples/if.src --ir-format text
+	@echo ""
+	@echo "=== Текстовый формат IR (рекурсивный факториал) ==="
+	./target/debug/minic ir --input target/ir-examples/factorial.src --ir-format text
+	@echo ""
+	@echo "=== Статистика IR ==="
+	./target/debug/minic ir --input target/ir-examples/factorial.src --stats
+	@echo ""
+	@echo "=== Генерация DOT графа потока управления (CFG) ==="
+	./target/debug/minic ir --input target/ir-examples/if.src --ir-format dot --output target/ir-examples/cfg.dot
+	@echo "  DOT файл сохранен: target/ir-examples/cfg.dot"
+	@echo "  Для визуализации выполните: dot -Tpng target/ir-examples/cfg.dot -o target/ir-examples/cfg.png"
+	@echo ""
+	@echo "=== JSON формат IR ==="
+	./target/debug/minic ir --input target/ir-examples/simple.src --ir-format json | head -30
+
+optimization-demo:
+	@echo "Демонстрация оптимизаций IR..."
+	@mkdir -p target/ir-examples
+	@echo 'fn main() -> int { int x = 2 + 3; int y = 5 * 4; int z = 10 - 3; return x + y + z; }' > target/ir-examples/const_fold.src
+	@echo 'fn main() -> int { int x = 5; int a = x + 0; int b = x * 1; int c = x * 0; return a + b + c; }' > target/ir-examples/algebraic.src
+	@echo 'fn main() -> int { int x = 5; int y = 10; int z = x + y; int w = z * 2; return x; }' > target/ir-examples/dead_code.src
+	@echo ""
+	@echo "=== Свертка констант (до оптимизации) ==="
+	./target/debug/minic ir --input target/ir-examples/const_fold.src --ir-format text
+	@echo ""
+	@echo "=== Свертка констант (после оптимизации) ==="
+	./target/debug/minic ir --input target/ir-examples/const_fold.src --ir-format text --optimize --verbose
+	@echo ""
+	@echo "=== Алгебраические упрощения (до) ==="
+	./target/debug/minic ir --input target/ir-examples/algebraic.src --ir-format text
+	@echo ""
+	@echo "=== Алгебраические упрощения (после) ==="
+	./target/debug/minic ir --input target/ir-examples/algebraic.src --ir-format text --optimize --verbose
+	@echo ""
+	@echo "=== Удаление мертвого кода (до) ==="
+	./target/debug/minic ir --input target/ir-examples/dead_code.src --ir-format text
+	@echo ""
+	@echo "=== Удаление мертвого кода (после) ==="
+	./target/debug/minic ir --input target/ir-examples/dead_code.src --ir-format text --optimize --verbose
 
 semantic-demo:
 	@echo "Демонстрация семантического анализа..."
@@ -173,18 +238,6 @@ var-demo:
 	@echo 'fn main() -> int { var x = 42; x = "hello"; return 0; }' > target/ast-examples/var_error.src
 	./target/debug/minic semantic --input target/ast-examples/var_error.src || true
 
-error-demo:
-	@echo "Демонстрация восстановления после ошибок..."
-	@mkdir -p target/ast-examples
-	@echo 'fn buggy() { int x = 5; x++ return x; }' > target/ast-examples/errors.src
-	@echo 'fn main() { if (x > 0 { return x; } else { return 0; }' >> target/ast-examples/errors.src
-	@echo ""
-	@echo "Файл с ошибками:"
-	@cat target/ast-examples/errors.src
-	@echo ""
-	@echo "Анализ с восстановлением:"
-	./target/debug/minic parse --input target/ast-examples/errors.src --show-metrics
-
 inc-demo:
 	@echo "Демонстрация инкрементов/декрементов..."
 	@mkdir -p target/ast-examples
@@ -207,6 +260,18 @@ inc-demo:
 	@echo "Синтаксический анализ (AST с инкрементами):"
 	./target/debug/minic parse --input target/ast-examples/inc.src
 
+error-demo:
+	@echo "Демонстрация восстановления после ошибок..."
+	@mkdir -p target/ast-examples
+	@echo 'fn buggy() { int x = 5; x++ return x; }' > target/ast-examples/errors.src
+	@echo 'fn main() { if (x > 0 { return x; } else { return 0; }' >> target/ast-examples/errors.src
+	@echo ""
+	@echo "Файл с ошибками:"
+	@cat target/ast-examples/errors.src
+	@echo ""
+	@echo "Анализ с восстановлением:"
+	./target/debug/minic parse --input target/ast-examples/errors.src --show-metrics
+
 ll1-demo:
 	@echo "Демонстрация LL(1) анализа грамматики..."
 	./target/debug/minic ll1 --show-first --show-follow
@@ -217,7 +282,7 @@ full-pipeline:
 	@echo '#define MAX 100' > target/ast-examples/full.src
 	@echo '#define DEBUG 1' >> target/ast-examples/full.src
 	@echo '' >> target/ast-examples/full.src
-	@echo 'fn main() {' >> target/ast-examples/full.src
+	@echo 'fn main() -> int {' >> target/ast-examples/full.src
 	@echo '    int sum = 0;' >> target/ast-examples/full.src
 	@echo '    for (int i = 0; i < MAX; i++) {' >> target/ast-examples/full.src
 	@echo '        sum = sum + i;' >> target/ast-examples/full.src
@@ -242,6 +307,9 @@ full-pipeline:
 	@echo ""
 	@echo "Шаг 4: Семантический анализ"
 	./target/debug/minic semantic --input target/ast-examples/full_processed.src --show-symbols
+	@echo ""
+	@echo "Шаг 5: Генерация IR"
+	./target/debug/minic ir --input target/ast-examples/full_processed.src --ir-format text
 
 # === Примеры использования ===
 example:
@@ -258,11 +326,18 @@ example:
 	@echo "  ./target/debug/minic parse --input examples/factorial.src --ast-format json --output ast.json"
 	@echo "  ./target/debug/minic parse --input examples/factorial.src --show-metrics"
 	@echo ""
-	@echo "Семантический анализ (НОВОЕ!):"
+	@echo "Семантический анализ:"
 	@echo "  ./target/debug/minic semantic --input examples/factorial.src"
 	@echo "  ./target/debug/minic semantic --input examples/factorial.src --show-symbols"
 	@echo "  ./target/debug/minic semantic --input examples/factorial.src --show-ast"
 	@echo "  ./target/debug/minic semantic --input examples/factorial.src --show-symbols --show-layout"
+	@echo ""
+	@echo "Генерация IR (НОВОЕ!):"
+	@echo "  ./target/debug/minic ir --input examples/factorial.src --ir-format text"
+	@echo "  ./target/debug/minic ir --input examples/factorial.src --ir-format dot --output cfg.dot"
+	@echo "  ./target/debug/minic ir --input examples/factorial.src --ir-format json --output ir.json"
+	@echo "  ./target/debug/minic ir --input examples/factorial.src --stats"
+	@echo "  ./target/debug/minic ir --input examples/factorial.src --optimize --verbose"
 	@echo ""
 	@echo "Препроцессор:"
 	@echo "  ./target/debug/minic preprocess --input examples/test.src --defines DEBUG=1 --show"
@@ -300,7 +375,7 @@ example:
 
 create-test-files:
 	@echo "Создание тестовых файлов..."
-	@mkdir -p examples tests/lexer/valid tests/lexer/invalid tests/parser/valid tests/parser/invalid docs
+	@mkdir -p examples tests/lexer/valid tests/lexer/invalid tests/parser/valid tests/parser/invalid docs tests/ir/golden tests/ir/golden/expected
 
 	# Базовые примеры
 	@echo 'fn main() { return 42; }' > examples/hello.src
@@ -326,6 +401,12 @@ create-test-files:
 	@echo 'fn factorial(int n) -> int { if (n <= 1) { return 1; } return n * factorial(n - 1); }' > examples/factorial.src
 	@echo 'struct Point { int x; int y; } fn main() { struct Point p; p.x = 10; p.y = 20; p.x++; return p.x + p.y; }' > examples/struct.src
 
+	# Примеры для IR
+	@echo 'fn main() -> int { int x = 5; int y = 10; int z = x + y; return z; }' > examples/ir_simple.src
+	@echo 'fn main() -> int { int x = 5; if (x > 0) { return 10; } else { return 20; } }' > examples/ir_if.src
+	@echo 'fn factorial(int n) -> int { if (n <= 1) { return 1; } else { return n * factorial(n - 1); } }' > examples/ir_factorial.src
+	@echo 'fn main() -> int { int i = 0; int sum = 0; while (i < 5) { sum = sum + i; i = i + 1; } return sum; }' > examples/ir_while.src
+
 	# Тесты для парсера
 	@echo 'fn add(int a, int b) -> int { return a + b; }' > tests/parser/valid/function.src
 	@echo 'if (x > 0) { return 1; } else { return 0; }' > tests/parser/valid/if.src
@@ -342,6 +423,10 @@ create-test-files:
 	@echo "  examples/struct.src - работа со структурами"
 	@echo "  examples/increment.src - инкременты/декременты"
 	@echo "  examples/var_demo.src - демонстрация var"
+	@echo "  examples/ir_simple.src - пример для IR (арифметика)"
+	@echo "  examples/ir_if.src - пример для IR (if-else)"
+	@echo "  examples/ir_factorial.src - пример для IR (рекурсия)"
+	@echo "  examples/ir_while.src - пример для IR (цикл)"
 	@echo "  examples/undeclared.src - необъявленная переменная"
 	@echo "  examples/type_mismatch.src - несоответствие типов"
 	@echo "  examples/field_error.src - несуществующее поле"
@@ -374,12 +459,15 @@ help:
 	@echo "  make test-lexer    - Тесты лексического анализатора"
 	@echo "  make test-parser   - Тесты парсера"
 	@echo "  make test-preprocessor - Тесты препроцессора"
-	@echo "  make test-semantic - Семантические тесты (24 теста)"
+	@echo "  make test-semantic - Семантические тесты"
+	@echo "  make test-ir       - Тесты генерации IR (НОВОЕ!)"
+	@echo "  make test-ir-opt   - Тесты оптимизаций IR (НОВОЕ!)"
+	@echo "  make test-ir-golden - Golden тесты IR (НОВОЕ!)"
 	@echo "  make test-integration - Интеграционные тесты"
 	@echo "  make test-ll1      - LL(1) тесты"
 	@echo "  make test-common   - Тесты общих модулей"
 	@echo "  make test-doc      - Документационные тесты"
-	@echo "  make test-all      - Все тесты (лексика + синтаксис + семантика + LL(1))"
+	@echo "  make test-all      - Все тесты (включая IR)"
 	@echo ""
 	@echo "Качество кода:"
 	@echo "  make lint          - Проверка линтером (clippy)"
@@ -392,12 +480,14 @@ help:
 	@echo ""
 	@echo "Демонстрации:"
 	@echo "  make ast-demo      - Визуализация AST (text/dot/json)"
-	@echo "  make semantic-demo - Демонстрация семантического анализа (НОВОЕ!)"
-	@echo "  make var-demo      - Демонстрация вывода типов var (НОВОЕ!)"
+	@echo "  make ir-demo       - Генерация IR (текст/DOT/JSON/статистика) (НОВОЕ!)"
+	@echo "  make optimization-demo - Оптимизации IR (свертка констант, удаление мертвого кода) (НОВОЕ!)"
+	@echo "  make semantic-demo - Демонстрация семантического анализа"
+	@echo "  make var-demo      - Демонстрация вывода типов var"
 	@echo "  make inc-demo      - Демонстрация инкрементов/декрементов"
 	@echo "  make error-demo    - Демонстрация восстановления после ошибок"
 	@echo "  make ll1-demo      - LL(1) анализ грамматики"
-	@echo "  make full-pipeline - Полный пайплайн (препроцессор → лексер → парсер → семантика)"
+	@echo "  make full-pipeline - Полный пайплайн (препроцессор → лексер → парсер → семантика → IR)"
 	@echo "  make example       - Показать примеры использования CLI"
 	@echo "  make create-test-files - Создать тестовые файлы"
 	@echo ""
@@ -413,5 +503,7 @@ help:
 	@echo ""
 	@echo "Быстрый старт:"
 	@echo "  make create-test-files && make build && make ast-demo"
-	@echo "  make semantic-demo  # Показать семантический анализ"
-	@echo "  make var-demo       # Показать вывод типов var"
+	@echo "  make ir-demo       # Показать генерацию IR"
+	@echo "  make optimization-demo # Показать оптимизации IR"
+	@echo "  make semantic-demo # Показать семантический анализ"
+	@echo "  make var-demo      # Показать вывод типов var"

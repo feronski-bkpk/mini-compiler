@@ -172,6 +172,33 @@ enum Commands {
         show_layout: bool,
     },
 
+    /// Генерация промежуточного представления (IR)
+    Ir {
+        /// Входной файл с исходным кодом
+        #[arg(short, long)]
+        input: PathBuf,
+
+        /// Выходной файл для IR
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Формат вывода IR (text, dot, json)
+        #[arg(long, value_enum, default_value_t = AstFormat::Text)]
+        ir_format: AstFormat,
+
+        /// Показать статистику IR
+        #[arg(long)]
+        stats: bool,
+
+        /// Применить оптимизации
+        #[arg(long)]
+        optimize: bool,
+
+        /// Определить макросы для препроцессора
+        #[arg(short = 'D', long)]
+        defines: Vec<String>,
+    },
+
     /// Проверить синтаксис исходного кода
     Check {
         /// Входной файл с исходным кодом
@@ -355,6 +382,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             show_symbols,
             show_ast,
             show_layout,
+            cli.verbose,
+        ),
+
+        Commands::Ir {
+            input,
+            output,
+            ir_format,
+            stats,
+            optimize,
+            defines,
+        } => handle_ir_command(
+            &input,
+            output,
+            ir_format,
+            stats,
+            optimize,
+            defines,
             cli.verbose,
         ),
 
@@ -1213,6 +1257,89 @@ fn handle_semantic_command(
     } else {
         Ok(())
     }
+}
+
+fn handle_ir_command(
+    input: &Path,
+    output: Option<PathBuf>,
+    format: AstFormat,
+    stats: bool,
+    optimize: bool,
+    defines: Vec<String>,
+    verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if verbose {
+        println!("Генерация IR для файла: {}", input.display());
+        if optimize {
+            println!("Оптимизация включена");
+        }
+        if !defines.is_empty() {
+            println!("Макросы: {:?}", defines);
+        }
+    }
+
+    let source = utils::read_file_with_limit(input)?;
+
+    let defines_vec: Vec<(&str, &str)> = defines
+        .iter()
+        .filter_map(|d| {
+            let parts: Vec<&str> = d.splitn(2, '=').collect();
+            if parts.len() == 2 {
+                Some((parts[0], parts[1]))
+            } else {
+                Some((d.as_str(), ""))
+            }
+        })
+        .collect();
+
+    let (parse_output, ir_program) = minic::compiler::compile_with_ir(&source, defines_vec);
+
+    if parse_output.has_errors() {
+        eprintln!("Найдено ошибок: {}", parse_output.errors.len());
+        for error in &parse_output.errors.errors {
+            eprintln!("  {}", error);
+        }
+        return Err("Ошибки при компиляции".into());
+    }
+
+    let mut ir_program = ir_program.ok_or("Не удалось сгенерировать IR")?;
+
+    if stats {
+        println!("{}", minic::ir::IRPrinter::print_stats(&ir_program));
+        return Ok(());
+    }
+
+    if optimize {
+        if verbose {
+            println!("Применение оптимизаций...");
+        }
+        let report = minic::ir::PeepholeOptimizer::optimize(&mut ir_program);
+
+        if verbose {
+            println!("Оптимизации завершены:");
+            println!("  Изменений: {}", report.changes_made);
+            println!("  Удалено инструкций: {}", report.instructions_removed);
+            println!("  Упрощений: {}", report.simplifications_applied);
+            println!("  Удалено мертвого кода: {}", report.dead_code_removed);
+        }
+    }
+
+    let output_text = match format {
+        AstFormat::Text => minic::ir::IRPrinter::to_text(&ir_program),
+        AstFormat::Dot => minic::ir::IRPrinter::to_dot(&ir_program),
+        AstFormat::Json => minic::ir::IRPrinter::to_json(&ir_program)?,
+    };
+
+    if let Some(output_path) = output {
+        utils::write_file(&output_path, &output_text)?;
+        if verbose {
+            println!("IR записан в: {}", output_path.display());
+        }
+    } else {
+        println!("{}", output_text);
+    }
+
+    Ok(())
 }
 
 fn format_text_output(

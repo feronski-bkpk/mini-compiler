@@ -6,6 +6,7 @@
 //! компиляции для упрощенного C-подобного языка (MiniC).
 
 pub mod common;
+pub mod ir;
 pub mod lexer;
 pub mod parser;
 pub mod preprocessor;
@@ -114,6 +115,29 @@ pub mod compiler {
 
         result.push_str(&utils::format_tokens(tokens));
         result
+    }
+
+    pub fn compile_with_ir(
+        source: &str,
+        defines: Vec<(&str, &str)>,
+    ) -> (ParseOutput, Option<crate::ir::ProgramIR>) {
+        let parse_output = compile(source, defines);
+
+        if !parse_output.is_valid() {
+            return (parse_output, None);
+        }
+
+        let mut analyzer = crate::semantic::SemanticAnalyzer::new();
+        let semantic_output = analyzer.analyze(parse_output.ast.clone().unwrap());
+
+        if semantic_output.has_errors() {
+            return (parse_output, None);
+        }
+
+        let mut ir_generator = crate::ir::IRGenerator::new(semantic_output.symbol_table);
+        let ir_program = ir_generator.generate(parse_output.ast.clone().unwrap());
+
+        (parse_output, Some(ir_program))
     }
 }
 

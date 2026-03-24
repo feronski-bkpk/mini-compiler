@@ -1,0 +1,80 @@
+
+
+
+
+
+struct Point {
+    int x;
+    int y;
+};
+
+struct Circle {
+    struct Point center;
+    int radius;
+};
+
+
+
+fn circle_area(struct Circle c) -> float {
+    return 3.14159 * c.radius * c.radius;
+}
+
+fn counter_demo(int start) -> int {
+    int x = start;
+    
+        int a = x++;      
+        int b = ++x;      
+        int c = x--;      int d = --x;      
+    return a + b + c + d;
+}
+
+fn factorial(int n) -> int {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn main() {
+        int x = 42;
+    float pi = 3.14159;
+    bool flag = true;
+    string msg = "MiniC Demo Program";
+    
+        struct Point p;
+    p.x = 10;
+    p.y = 20;
+    
+    struct Circle c;
+    c.center = p;
+    c.radius = 5;
+    
+        p.x++;
+    ++p.y;
+    
+        float area = circle_area(c);
+    int fact = factorial(5);
+    int counter = counter_demo(5);
+    
+        if (x > 0) {
+        x = x + 10;
+    } else {
+        x = x - 10;
+    }
+    
+        int sum = 0;
+    for (int i = 0; i < 10; i = i + 1) {
+        sum = sum + i;
+        
+                        int debug_var = i;
+    }
+    
+        int j = 0;
+    while (j < 5) {
+        j++;
+    }
+    
+        int result = (x + p.x) * (c.radius + fact) - counter++ + --sum;
+    
+    return result;
+}

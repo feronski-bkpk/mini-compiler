@@ -1,0 +1,11 @@
+fn main() -> int {
+    var a = 42;
+    var b = 3.14;
+    var c = true;
+    var d = "hello";
+    
+    a = 100;
+    b = 2.71;
+    
+    return 0;
+}

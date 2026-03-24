@@ -7,7 +7,5 @@ fn factorial(int n) -> int {
 }
 
 fn main() -> int {
-    int x = 5;
-    int result = factorial(x);
-    return result;
+    return factorial(5);
 }

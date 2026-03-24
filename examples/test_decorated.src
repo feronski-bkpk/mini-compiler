@@ -1,0 +1,24 @@
+struct Point {
+    int x;
+    int y;
+}
+
+fn add(int a, int b) -> int {
+    return a + b;
+}
+
+fn main() -> int {
+    int x = 5;
+    float y = 3.14;
+    var z = x + y;
+    
+    struct Point p;
+    p.x = 10;
+    p.y = 20;
+    
+    if (x > 0) {
+        x = add(x, 5);
+    }
+    
+    return z;
+}
