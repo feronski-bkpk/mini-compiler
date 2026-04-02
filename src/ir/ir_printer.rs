@@ -22,7 +22,7 @@ impl IRPrinter {
             output.push_str("\n");
         }
 
-        for func in program.functions.values() {
+        for func in &program.functions {
             output.push_str(&Self::function_to_text(func));
             output.push_str("\n");
         }
@@ -95,7 +95,7 @@ impl IRPrinter {
         output.push_str("  rankdir=TB;\n");
         output.push_str("  node [shape=box, fontname=\"Courier\"];\n\n");
 
-        for func in program.functions.values() {
+        for func in &program.functions {
             output.push_str(&format!("  subgraph cluster_{} {{\n", func.name));
             output.push_str(&format!("    label = \"Function: {}\";\n", func.name));
             output.push_str("    style = filled;\n");
@@ -193,7 +193,7 @@ impl IRPrinter {
 
         let functions: Vec<JSONFunction> = program
             .functions
-            .values()
+            .iter()
             .map(|func| JSONFunction {
                 name: func.name.clone(),
                 return_type: func.return_type.clone(),
@@ -215,9 +215,9 @@ impl IRPrinter {
                     .collect(),
                 blocks: func
                     .blocks
-                    .values()
-                    .map(|block| JSONBlock {
-                        label: block.label.clone(),
+                    .iter()
+                    .map(|(label, block)| JSONBlock {
+                        label: label.clone(),
                         instructions: block
                             .instructions
                             .iter()

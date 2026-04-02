@@ -124,8 +124,8 @@ impl FunctionIR {
 /// Полная IR программа
 #[derive(Debug, Clone)]
 pub struct ProgramIR {
-    /// Функции
-    pub functions: HashMap<String, FunctionIR>,
+    /// Функции (хранятся в Vec для сохранения порядка)
+    pub functions: Vec<FunctionIR>,
     /// Глобальные переменные
     pub globals: Vec<(String, String)>,
 }
@@ -134,29 +134,42 @@ impl ProgramIR {
     /// Создает новую программу
     pub fn new() -> Self {
         Self {
-            functions: HashMap::new(),
+            functions: Vec::new(),
             globals: Vec::new(),
         }
     }
 
     /// Добавляет функцию
     pub fn add_function(&mut self, func: FunctionIR) {
-        self.functions.insert(func.name.clone(), func);
+        self.functions.push(func);
     }
 
-    /// Получает функцию
+    /// Получает функцию по имени
     pub fn get_function(&self, name: &str) -> Option<&FunctionIR> {
-        self.functions.get(name)
+        self.functions.iter().find(|f| f.name == name)
     }
 
-    /// Получает мутабельную функцию
+    /// Получает мутабельную функцию по имени
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut FunctionIR> {
-        self.functions.get_mut(name)
+        self.functions.iter_mut().find(|f| f.name == name)
     }
 
     /// Добавляет глобальную переменную
     pub fn add_global(&mut self, name: String, typ: String) {
         self.globals.push((name, typ));
+    }
+
+    /// Сортирует функции: main первой, остальные по алфавиту
+    pub fn sort_functions_by_name(&mut self) {
+        self.functions.sort_by(|a, b| {
+            if a.name == "main" {
+                std::cmp::Ordering::Less
+            } else if b.name == "main" {
+                std::cmp::Ordering::Greater
+            } else {
+                a.name.cmp(&b.name)
+            }
+        });
     }
 }
 
@@ -182,7 +195,7 @@ impl IRStatistics {
         let mut stats = IRStatistics::default();
         let mut temp_set = std::collections::HashSet::new();
 
-        for func in program.functions.values() {
+        for func in &program.functions {
             stats.basic_block_count += func.blocks.len();
 
             for block in func.blocks.values() {

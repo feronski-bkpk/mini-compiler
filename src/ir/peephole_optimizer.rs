@@ -41,7 +41,7 @@ impl PeepholeOptimizer {
             changed = false;
             iteration += 1;
 
-            for func in program.functions.values_mut() {
+            for func in program.functions.iter_mut() {
                 let report = Self::optimize_function(func);
                 if report.changes_made > 0 {
                     changed = true;

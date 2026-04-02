@@ -207,7 +207,8 @@ fn test_ir_validation_terminators() {
 
     let program = ir_program.unwrap();
 
-    for func in program.functions.values() {
+    // Используем итератор по Vec вместо HashMap
+    for func in &program.functions {
         for block in func.blocks.values() {
             if block.instructions.is_empty() {
                 continue;

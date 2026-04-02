@@ -40,16 +40,37 @@ impl IRGenerator {
     }
 
     pub fn generate(&mut self, program: Program) -> ProgramIR {
+        let mut func_list = Vec::new();
+        let mut global_vars = Vec::new();
+
         for decl in program.declarations {
             match decl {
-                Declaration::Function(func) => self.generate_function(&func),
+                Declaration::Function(func) => func_list.push(func),
                 Declaration::Struct(_) => {}
-                Declaration::Variable(var) => {
-                    self.program
-                        .add_global(var.name.clone(), var.var_type.to_string());
-                }
+                Declaration::Variable(var) => global_vars.push(var),
             }
         }
+
+        for var in global_vars {
+            self.program.add_global(var.name, var.var_type.to_string());
+        }
+
+        func_list.sort_by(|a, b| {
+            if a.name == "main" {
+                std::cmp::Ordering::Less
+            } else if b.name == "main" {
+                std::cmp::Ordering::Greater
+            } else {
+                a.name.cmp(&b.name)
+            }
+        });
+
+        for func in &func_list {
+            self.generate_function(&func);
+        }
+
+        self.program.sort_functions_by_name();
+
         self.program.clone()
     }
 
