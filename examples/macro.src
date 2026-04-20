@@ -1,4 +1,0 @@
-﻿#define VALUE 42
-fn main() -> int {
-    return VALUE;
-}

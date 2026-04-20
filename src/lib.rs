@@ -5,6 +5,7 @@
 //! Mini Compiler - это учебный проект, реализующий полный pipeline
 //! компиляции для упрощенного C-подобного языка (MiniC).
 
+pub mod codegen;
 pub mod common;
 pub mod ir;
 pub mod lexer;

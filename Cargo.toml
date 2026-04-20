@@ -1,13 +1,13 @@
 [package]
 name = "mini-compiler"
-version = "0.2.0"
+version = "0.5.0"
 edition = "2024"
 authors = ["Feronski <feronski@mail.ru>"]
-description = "A minimal C-like language compiler"
+description = "A minimal C-like language compiler with x86-64 code generation"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/feronski-bkpk/mini-compiler"
 readme = "README.md"
-keywords = ["compiler", "lexer", "scanner", "education", "c-like"]
+keywords = ["compiler", "lexer", "scanner", "codegen", "x86-64"]
 categories = ["development-tools::build-utils", "compilers"]
 include = [
     "src/**/*",

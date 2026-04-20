@@ -1,26 +1,30 @@
 # Program: MiniC IR
-# Generated: 2026-03-24 08:12:49
+# Generated: 2026-04-20 11:16:23
 
 function main: int ()
   locals:
     i: int
     sum: int
 
-  L1:
+  main_1:
+    t1 = MOVE 0
+    i = MOVE t1
+    t2 = MOVE 0
+    sum = MOVE t2
 
-  L2:
+  main_2:
     t3 = CMP_LT i, 5
-    JUMP_IF_NOT t3, L4
-    JUMP L3
+    JUMP_IF_NOT t3, main_4
+    JUMP main_3
 
-  L3:
+  main_3:
     t4 = ADD sum, i
     sum = MOVE t4
     t5 = ADD i, 1
     i = MOVE t5
-    JUMP L2
+    JUMP main_2
 
-  L4:
+  main_4:
     RETURN sum
 
 

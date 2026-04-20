@@ -1,6 +1,6 @@
 # Mini Compiler
 
-**Минимальный компилятор C-подобного языка, написанный на Rust с полной поддержкой LL(1) грамматики, семантическим анализом, генерацией промежуточного представления (IR) и восстановлением после ошибок.**
+**Минимальный компилятор C-подобного языка, написанный на Rust с полной поддержкой LL(1) грамматики, семантическим анализом, генерацией промежуточного представления (IR) и **генерацией x86-64 ассемблерного кода**.**
 
 ## Оглавление
 
@@ -11,6 +11,7 @@
 - [Быстрый старт](#быстрый-старт)
 - [Использование CLI](#использование-cli)
 - [Генерация промежуточного представления (IR)](#генерация-промежуточного-представления-ir)
+- [Генерация x86-64 ассемблерного кода](#генерация-x86-64-ассемблерного-кода)
 - [Семантический анализ](#семантический-анализ)
 - [Вывод типов (var)](#вывод-типов-var)
 - [Оптимизации IR](#оптимизации-ir)
@@ -26,25 +27,14 @@
 
 ## Особенности
 
-### Реализовано
-- **Лексический анализатор** - полное распознавание 30+ типов токенов
-- **Препроцессор** - удаление комментариев, макросы, условная компиляция
-- **Формальная грамматика** - полная EBNF спецификация языка
-- **Парсер с рекурсивным спуском** - LL(1) грамматика
-- **Семантический анализатор** - проверка типов, областей видимости, вызовов функций
-- **Размещение в памяти** - вычисление размеров и смещений для переменных и полей структур
-- **Генерация промежуточного представления (IR)** - трехадресный код для всех конструкций
-- **Граф потока управления (CFG)** - построение и визуализация
-- **Оптимизации IR** - свертка констант, алгебраические упрощения, удаление мертвого кода
-- **Визуализация AST и CFG** - текстовый, DOT и JSON форматы
-- **Обработка ошибок** - детальные сообщения на русском языке с предложениями по исправлению
-
 ### Технические характеристики
 - **Язык**: Rust 2024 edition
+- **Целевая архитектура**: x86-64
+- **ABI**: System V AMD64
+- **Ассемблер**: NASM
 - **Обработка ошибок**: Детальные сообщения с восстановлением
 - **Поддержка кодировок**: UTF-8
 - **Окончания строк**: Unix (`\n`) и Windows (`\r\n`)
-- **Тесты**: 70+ тестов
 
 ## Структура проекта
 
@@ -86,6 +76,14 @@ mini-compiler/
 │   │   ├── control_flow.rs       # Построение CFG
 │   │   ├── ir_printer.rs         # Вывод IR (текст, DOT, JSON)
 │   │   └── peephole_optimizer.rs # Оптимизации IR
+│   ├── codegen/                  # Генерация x86-64 кода
+│   │   ├── mod.rs                # Экспорт модуля
+│   │   ├── x86_generator.rs      # Генератор x86-64 ассемблера
+│   │   ├── stack_frame.rs        # Управление стековым фреймом
+│   │   ├── register_allocator.rs # Аллокатор регистров
+│   │   └── abi.rs                # System V AMD64 ABI константы
+│   ├── runtime/                  # Рантайм-библиотека
+│   │   └── runtime.asm           # Ассемблерные функции (print_int, exit, etc.)
 │   ├── preprocessor/             # Препроцессор
 │   │   ├── mod.rs                # Основной модуль
 │   │   ├── macros.rs             # Таблица макросов
@@ -97,6 +95,7 @@ mini-compiler/
 │   ├── lexer/                    # Тесты лексера
 │   ├── parser/                   # Тесты парсера
 │   ├── ir/                       # Тесты IR
+│   ├── codegen/                  # Тесты кодогенерации
 │   ├── lexer_tests.rs            # Тесты лексера
 │   ├── parser_tests.rs           # Тесты парсера
 │   ├── preprocessor_tests.rs     # Тесты препроцессора
@@ -105,6 +104,10 @@ mini-compiler/
 │   ├── semantic_tests.rs         # Тесты семантического анализа
 │   ├── ir_tests.rs               # Тесты IR генерации
 │   ├── ir_optimization_tests.rs  # Тесты оптимизаций
+│   ├── ir_golden_tests.rs        # Golden тесты IR
+│   ├── codegen_tests.rs          # Тесты кодогенерации
+│   ├── integration_codegen.rs    # Интеграционные тесты кодогенерации
+│   ├── abi_compliance_tests.rs   # ABI compliance тесты
 │   └── bugs_tests.rs             # Тесты исправленных ошибок
 ├── examples/                     # Демонстрационные файлы
 ├── docs/                         # Документация
@@ -125,7 +128,28 @@ mini-compiler/
 - **Rust 1.70 или новее**
 - **Cargo** (менеджер пакетов Rust)
 - **Git** (для клонирования репозитория)
+- **NASM** (для ассемблирования сгенерированного кода)
 - **Graphviz** (опционально, для визуализации AST и CFG)
+
+### Установка NASM
+
+**Windows (MinGW):**
+```bash
+# Через MSYS2
+pacman -S mingw-w64-x86_64-nasm
+
+# Или скачайте с https://www.nasm.us/
+```
+
+**Linux:**
+```bash
+sudo apt-get install nasm
+```
+
+**macOS:**
+```bash
+brew install nasm
+```
 
 ### Установка
 
@@ -176,11 +200,11 @@ make test                    # Все тесты
 make test-lexer              # Тесты лексера
 make test-parser             # Тесты парсера
 make test-preprocessor       # Тесты препроцессора
-make test-integration        # Интеграционные тесты
-make test-ll1                # LL(1) тесты
 make test-semantic           # Семантические тесты
 make test-ir                 # Тесты IR генерации
 make test-ir-opt             # Тесты оптимизаций
+make test-codegen            # Тесты кодогенерации
+make test-abi                # ABI compliance тесты
 make test-all                # Все тесты
 ```
 
@@ -188,12 +212,13 @@ make test-all                # Все тесты
 ```bash
 make ast-demo                # Визуализация AST
 make ir-demo                 # Демонстрация IR генерации
+make codegen-demo            # Демонстрация кодогенерации
+make optimization-demo       # Демонстрация оптимизаций
+make semantic-demo           # Демонстрация семантического анализа
+make var-demo                # Демонстрация вывода типов var
 make inc-demo                # Демонстрация инкрементов
 make error-demo              # Восстановление после ошибок
 make ll1-demo                # LL(1) анализ грамматики
-make semantic-demo           # Демонстрация семантического анализа
-make var-demo                # Демонстрация вывода типов var
-make optimization-demo       # Демонстрация оптимизаций
 make full-pipeline           # Полный пайплайн
 ```
 
@@ -224,12 +249,13 @@ make build
 # Запустить все демонстрации
 make ast-demo
 make ir-demo
+make codegen-demo
+make optimization-demo
+make semantic-demo
+make var-demo
 make inc-demo
 make error-demo
 make ll1-demo
-make semantic-demo
-make var-demo
-make optimization-demo
 make full-pipeline
 ```
 
@@ -266,10 +292,16 @@ cargo run -- semantic --input processed.src --show-symbols
 # Шаг 5: Генерация IR
 cargo run -- ir --input processed.src --ir-format text
 
-# Шаг 6: IR с оптимизациями
-cargo run -- ir --input processed.src --ir-format text --optimize --verbose
+# Шаг 6: Генерация x86-64 ассемблера
+cargo run -- codegen --input processed.src --output factorial.asm
 
-# Шаг 7: Полный пайплайн одной командой
+# Шаг 7: Сборка и запуск
+nasm -f elf64 factorial.asm -o factorial.o
+gcc -no-pie -o factorial factorial.o
+./factorial
+echo $?  # Должно вывести 120
+
+# Шаг 8: Полный пайплайн одной командой
 cargo run -- full --input test.src --ast-format dot --output ast.dot --show-metrics
 ```
 
@@ -305,6 +337,11 @@ cargo run -- ir --input file.src --ir-format dot --output cfg.dot
 cargo run -- ir --input file.src --ir-format json --output ir.json
 cargo run -- ir --input file.src --stats
 cargo run -- ir --input file.src --optimize --verbose
+
+# Генерация x86-64 ассемблерного кода
+cargo run -- codegen --input file.src --output output.asm
+cargo run -- codegen --input file.src --output output.asm --optimize
+cargo run -- codegen --input file.src --output output.asm --stats
 
 # Препроцессор
 cargo run -- preprocess --input file.src --output processed.src --show
@@ -345,6 +382,138 @@ cargo run -- test
 --ir-format text   # Текстовый IR (по умолчанию)
 --ir-format dot    # Graphviz DOT для визуализации CFG
 --ir-format json   # JSON для машинной обработки
+```
+
+## Генерация x86-64 ассемблерного кода
+
+### Обзор
+
+Генератор кода преобразует IR инструкции в валидный x86-64 ассемблер с соблюдением **System V AMD64 ABI**.
+
+### Поддерживаемые инструкции
+
+| Категория | Инструкции |
+|-----------|------------|
+| **Арифметические** | `ADD → add`, `SUB → sub`, `MUL → imul`, `DIV → idiv` |
+| **Логические** | `AND → and`, `OR → or`, `NOT → not`, `XOR → xor` |
+| **Сравнения** | `CMP_* → cmp + set*` |
+| **Память** | `LOAD → mov reg, [mem]`, `STORE → mov [mem], reg` |
+| **Управление потоком** | `JUMP → jmp`, `JUMP_IF → jnz`, `CALL → call`, `RETURN → ret` |
+
+### System V AMD64 ABI
+
+**Соглашение о вызовах:**
+- Первые 6 целочисленных аргументов: `RDI`, `RSI`, `RDX`, `RCX`, `R8`, `R9`
+- Первые 8 аргументов с плавающей точкой: `XMM0-XMM7`
+- Дополнительные аргументы: в стеке (справа налево)
+- Возвращаемое значение: `RAX` (целые), `XMM0` (float)
+
+**Использование регистров:**
+- **Caller-saved**: `RAX`, `RCX`, `RDX`, `RSI`, `RDI`, `R8-R11`
+- **Callee-saved**: `RBX`, `RSP`, `RBP`, `R12-R15`
+
+### Примеры генерации
+
+**Простая функция:**
+```c
+// Исходный код
+fn main() -> int {
+    return 42;
+}
+```
+
+```asm
+; Сгенерированный ассемблер
+section .text
+global main
+global _start
+
+main:
+    push rbp
+    mov rbp, rsp
+    mov rax, 42
+    mov rsp, rbp
+    pop rbp
+    ret
+
+_start:
+    call main
+    mov rdi, rax
+    call exit
+
+exit:
+    mov rax, 60
+    syscall
+```
+
+**Функция с параметрами:**
+```c
+// Исходный код
+fn add(int a, int b) -> int {
+    return a + b;
+}
+
+fn main() -> int {
+    return add(5, 3);
+}
+```
+
+```asm
+; Сгенерированный ассемблер (фрагмент)
+main:
+    push rbp
+    mov rbp, rsp
+    mov rdi, 5
+    mov rsi, 3
+    call add
+    mov rsp, rbp
+    pop rbp
+    ret
+
+add:
+    push rbp
+    mov rbp, rsp
+    mov [rbp+16], rdi
+    mov [rbp+24], rsi
+    mov rax, [rbp+16]
+    add rax, [rbp+24]
+    mov rsp, rbp
+    pop rbp
+    ret
+```
+
+### Команды кодогенерации
+
+```bash
+# Базовая генерация
+cargo run -- codegen --input factorial.src --output factorial.asm
+
+# С оптимизациями
+cargo run -- codegen --input factorial.src --output factorial.asm --optimize
+
+# Со статистикой
+cargo run -- codegen --input factorial.src --output factorial.asm --stats
+
+# Сборка и запуск
+nasm -f elf64 factorial.asm -o factorial.o
+gcc -no-pie -o factorial factorial.o
+./factorial
+```
+
+### Стековый фрейм
+
+**Пролог функции:**
+```asm
+push rbp        ; Сохранение базового указателя
+mov rbp, rsp    ; Установка нового базового указателя
+sub rsp, N      ; Выделение места для локальных переменных (выровнено по 16)
+```
+
+**Эпилог функции:**
+```asm
+mov rsp, rbp    ; Восстановление указателя стека
+pop rbp         ; Восстановление базового указателя
+ret             ; Возврат к вызывающей функции
 ```
 
 ## Генерация промежуточного представления (IR)
@@ -445,7 +614,7 @@ function main: int ()
 function factorial: int (int n)
   L1:
     t1 = CMP_LE n, 1
-    JUMP_IF_NOT t1, L2
+    JUMP_IF t1, L2
     JUMP L3
 
   L2:
@@ -574,6 +743,13 @@ var s = "hello"; // выводится string
 
 ## Демонстрации
 
+### Демонстрация кодогенерации
+```bash
+make codegen-demo
+# или
+cargo run -- codegen --input examples/factorial.src --output factorial.asm --stats
+```
+
 ### Демонстрация IR генерации
 ```bash
 make ir-demo
@@ -674,10 +850,9 @@ make test-parser
 make test-semantic
 make test-ir
 make test-ir-opt
-make test-preprocessor
-make test-ll1
-make test-integration
-make test-all
+make test-codegen          
+make test-abi              
+make test-all              
 ```
 
 ### Категории тестов
@@ -692,8 +867,10 @@ make test-all
 | IR генерация | `ir_tests.rs` | 7 тестов |
 | IR оптимизации | `ir_optimization_tests.rs` | 3 теста |
 | Golden tests | `ir_golden_tests.rs` | 8 тестов |
+| **Кодогенерация** | `codegen_tests.rs` | **8 тестов** |
+| **ABI compliance** | `abi_compliance_tests.rs` | **5 тестов** |
+| Интеграционные | `integration_codegen.rs` | 4 теста |
 | Исправленные ошибки | `bugs_tests.rs` | 4 теста |
-| Интеграционные | `integration_tests.rs` | 2 теста |
 
 ### Golden Tests
 
@@ -721,12 +898,12 @@ cargo test --test ir_golden_tests
           │
           ▼
    ┌──────────────┐
-   │   Лексер     │  ← Токенизация
+   │    Лексер    │  ← Токенизация
    └──────────────┘
           │
           ▼
    ┌──────────────┐
-   │   Парсер     │  ← Рекурсивный спуск (LL(1))
+   │    Парсер    │  ← Рекурсивный спуск (LL(1))
    └──────────────┘
           │
           ▼
@@ -758,6 +935,21 @@ cargo test --test ir_golden_tests
           │
           ▼
    Оптимизированный IR
+          │
+          ▼
+   ┌──────────────┐
+   │ x86-64 Code  │  ← Генерация ассемблера
+   │  Generator   │
+   └──────────────┘
+          │
+          ├──────────▶ x86-64 ассемблер
+          │
+          ├──────────▶ Стековый фрейм
+          │
+          ├──────────▶ ABI compliance
+          │
+          ▼
+        EXE файл
 ```
 
 ### Ключевые компоненты
@@ -799,6 +991,15 @@ cargo test --test ir_golden_tests
 - Алгебраические упрощения
 - Удаление мертвого кода
 - Сцепление переходов
+
+#### Генератор x86-64 кода (`src/codegen/`)
+- `x86_generator.rs` - трансляция IR в ассемблер
+- `stack_frame.rs` - управление стековым фреймом
+- `register_allocator.rs` - распределение регистров
+- `abi.rs` - System V AMD64 ABI константы
+
+#### Рантайм-библиотека (`src/runtime/`)
+- `runtime.asm` - ассемблерные функции (print_int, exit, etc.)
 
 ## LL(1) анализ
 
@@ -875,5 +1076,5 @@ cargo run -- error-demo --input examples/errors.src --max-errors 10
 - [Примеры использования](examples/)
 - [Чек-лист спринтов](docs/CHECKLIST.md)
 
-**Версия:** 0.4.0
-**Дата релиза:** Март 2026
+**Версия:** 0.5.0
+**Дата релиза:** Апрель 2026

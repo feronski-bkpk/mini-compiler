@@ -1,5 +1,5 @@
 # Program: MiniC IR
-# Generated: 2026-03-24 08:12:49
+# Generated: 2026-04-20 11:16:23
 
 function main: int ()
   locals:
@@ -7,27 +7,31 @@ function main: int ()
     y: int
     z: int
 
-  L1:
+  main_1:
+    t1 = MOVE 10
+    x = MOVE t1
+    t2 = MOVE 20
+    y = MOVE t2
     t3 = CMP_GT x, 5
-    JUMP_IF_NOT t3, L2
-    JUMP L3
+    JUMP_IF t3, main_2
+    JUMP main_3
 
-  L3:
+  main_3:
     z = MOVE 300
-    JUMP L4
+    JUMP main_4
 
-  L4:
+  main_4:
     RETURN z
 
-  L5:
+  main_5:
     z = MOVE 100
-    JUMP L7
+    JUMP main_7
 
-  L6:
+  main_6:
     z = MOVE 200
-    JUMP L7
+    JUMP main_7
 
-  L7:
-    JUMP L4
+  main_7:
+    JUMP main_4
 
 

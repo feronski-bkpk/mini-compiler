@@ -199,6 +199,29 @@ enum Commands {
         defines: Vec<String>,
     },
 
+    /// Генерация x86-64 ассемблерного кода
+    Codegen {
+        /// Входной файл с исходным кодом
+        #[arg(short, long)]
+        input: PathBuf,
+
+        /// Выходной файл для ассемблерного кода
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Применить оптимизации
+        #[arg(long)]
+        optimize: bool,
+
+        /// Показать статистику
+        #[arg(long)]
+        stats: bool,
+
+        /// Определить макросы для препроцессора
+        #[arg(short = 'D', long)]
+        defines: Vec<String>,
+    },
+
     /// Проверить синтаксис исходного кода
     Check {
         /// Входной файл с исходным кодом
@@ -401,6 +424,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             defines,
             cli.verbose,
         ),
+
+        Commands::Codegen {
+            input,
+            output,
+            optimize,
+            stats,
+            defines,
+        } => handle_codegen_command(&input, &output, optimize, stats, defines, cli.verbose),
 
         Commands::Check {
             input,
@@ -829,10 +860,8 @@ fn handle_ll1_command(
         if verbose {
             println!("Чтение грамматики из: {}", grammar_path.display());
         }
-        // Здесь можно добавить парсинг грамматики из файла
         println!("Функция в разработке");
     } else {
-        // Демонстрационная грамматика выражений
         let productions = vec![
             Production {
                 left: "E".to_string(),
@@ -1502,4 +1531,85 @@ fn format_verbose_output(
     output.push_str(&format!("  Инкременты/декременты: {}\n", increments));
 
     output
+}
+
+fn handle_codegen_command(
+    input: &Path,
+    output: &Path,
+    optimize: bool,
+    stats: bool,
+    defines: Vec<String>,
+    verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if verbose {
+        println!("Генерация x86-64 кода для: {}", input.display());
+        if optimize {
+            println!("Оптимизация включена");
+        }
+    }
+
+    let source = utils::read_file_with_limit(input)?;
+
+    let defines_vec: Vec<(&str, &str)> = defines
+        .iter()
+        .filter_map(|d| {
+            let parts: Vec<&str> = d.splitn(2, '=').collect();
+            if parts.len() == 2 {
+                Some((parts[0], parts[1]))
+            } else {
+                Some((d.as_str(), ""))
+            }
+        })
+        .collect();
+
+    let (parse_output, ir_program) = minic::compiler::compile_with_ir(&source, defines_vec);
+
+    if parse_output.has_errors() {
+        eprintln!("Ошибки при компиляции:");
+        for error in &parse_output.errors.errors {
+            eprintln!("  {}", error);
+        }
+        return Err("Компиляция не удалась".into());
+    }
+
+    let mut ir_program = ir_program.ok_or("Не удалось сгенерировать IR")?;
+
+    if optimize {
+        if verbose {
+            println!("Применение оптимизаций IR...");
+        }
+        let report = minic::ir::PeepholeOptimizer::optimize(&mut ir_program);
+        if verbose {
+            println!("Оптимизации: {} изменений", report.changes_made);
+        }
+    }
+
+    let result = minic::codegen::generate_assembly(&ir_program, optimize);
+
+    if stats {
+        println!("Статистика кодогенерации:");
+        println!("  Инструкций: {}", result.instruction_count);
+        println!("  Использовано регистров: {}", result.registers_used.len());
+        println!("  Регистры: {:?}", result.registers_used);
+        println!("  Размер фрейма: {} байт", result.frame_size);
+        println!();
+    }
+
+    minic::utils::write_file(output, &result.assembly)?;
+
+    if verbose {
+        println!("Ассемблерный код записан в: {}", output.display());
+        println!("\nДля сборки выполните:");
+        println!(
+            "  nasm -f elf64 {} -o {}.o",
+            output.display(),
+            output.display()
+        );
+        println!(
+            "  ld -o program {}.o src/runtime/runtime.asm",
+            output.display()
+        );
+    }
+
+    Ok(())
 }

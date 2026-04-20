@@ -14,6 +14,7 @@ pub struct IRGenerator {
     label_counter: usize,
     var_to_temp: HashMap<String, String>,
     current_locals: Vec<(String, String)>,
+    function_counter: usize,
 }
 
 impl IRGenerator {
@@ -26,6 +27,7 @@ impl IRGenerator {
             label_counter: 0,
             var_to_temp: HashMap::new(),
             current_locals: Vec::new(),
+            function_counter: 0,
         }
     }
 
@@ -36,7 +38,12 @@ impl IRGenerator {
 
     fn new_label(&mut self) -> Operand {
         self.label_counter += 1;
-        Operand::Label(format!("L{}", self.label_counter))
+        let func_prefix = if let Some(name) = &self.current_function {
+            format!("{}_", name)
+        } else {
+            String::new()
+        };
+        Operand::Label(format!("{}{}", func_prefix, self.label_counter))
     }
 
     pub fn generate(&mut self, program: Program) -> ProgramIR {
@@ -66,11 +73,10 @@ impl IRGenerator {
         });
 
         for func in &func_list {
-            self.generate_function(&func);
+            self.generate_function(func);
         }
 
         self.program.sort_functions_by_name();
-
         self.program.clone()
     }
 
@@ -86,6 +92,7 @@ impl IRGenerator {
         self.current_function = Some(func.name.clone());
         self.temp_counter = 0;
         self.label_counter = 0;
+        self.function_counter += 1;
         self.var_to_temp.clear();
         self.current_locals.clear();
 
@@ -115,7 +122,6 @@ impl IRGenerator {
         for block in all_blocks {
             func_ir.add_block(block);
         }
-
         func_ir.add_block(entry_block);
 
         if !current_block.instructions.is_empty() {
@@ -136,7 +142,6 @@ impl IRGenerator {
         }
 
         super::control_flow::build_cfg(&mut func_ir);
-
         self.program.add_function(func_ir);
         self.current_function = None;
     }
@@ -165,10 +170,10 @@ impl IRGenerator {
                 self.current_locals
                     .push((var.name.clone(), var.var_type.to_string()));
                 if let Some(init) = &var.initializer {
-                    let value = self.generate_expression(init, current_block, all_blocks);
+                    let value = self.generate_expression(init, entry_block, all_blocks);
                     let temp = self.new_temp();
-                    current_block.add_instruction(IRInstruction::Move(temp.clone(), value.clone()));
-                    current_block.add_instruction(IRInstruction::Move(
+                    entry_block.add_instruction(IRInstruction::Move(temp.clone(), value.clone()));
+                    entry_block.add_instruction(IRInstruction::Move(
                         Operand::Variable(var.name.clone()),
                         temp,
                     ));
@@ -320,7 +325,7 @@ impl IRGenerator {
                 let dest = self.new_temp();
                 current_block.add_instruction(IRInstruction::Call(
                     dest.clone(),
-                    Operand::Variable(func_name),
+                    Operand::Label(func_name),
                     args,
                 ));
                 dest
@@ -359,7 +364,7 @@ impl IRGenerator {
             _ => unreachable!(),
         };
 
-        entry_block.add_instruction(IRInstruction::JumpIfNot(cond, then_label.clone()));
+        entry_block.add_instruction(IRInstruction::JumpIf(cond, then_label.clone()));
         entry_block.add_instruction(IRInstruction::Jump(else_label.clone()));
 
         let mut then_block = BasicBlock::new(then_label_str.clone());
@@ -499,7 +504,13 @@ impl IRGenerator {
         if let Statement::Block(block_stmt) = &*while_stmt.body {
             self.generate_blocks(block_stmt, current_block, &mut body_block, all_blocks);
         } else {
-            self.generate_statement(&while_stmt.body, current_block, &mut body_block, all_blocks);
+            let mut dummy_entry = body_block.clone();
+            self.generate_statement(
+                &while_stmt.body,
+                &mut dummy_entry,
+                &mut body_block,
+                all_blocks,
+            );
         }
         body_block.add_instruction(IRInstruction::Jump(cond_label.clone()));
         all_blocks.push(body_block);
@@ -589,9 +600,15 @@ impl IRGenerator {
 
     fn generate_identifier(&mut self, ident: &IdentifierExpr) -> Operand {
         if let Some(temp) = self.var_to_temp.get(&ident.name) {
-            Operand::Temporary(temp.clone())
-        } else {
-            Operand::Variable(ident.name.clone())
+            return Operand::Temporary(temp.clone());
         }
+
+        if let Some(symbol) = self.symbol_table.lookup(&ident.name) {
+            if let crate::semantic::type_system::Type::Function { .. } = &symbol.typ {
+                return Operand::Label(ident.name.clone());
+            }
+        }
+
+        Operand::Variable(ident.name.clone())
     }
 }

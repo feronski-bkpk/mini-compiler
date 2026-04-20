@@ -125,6 +125,11 @@ impl Symbol {
     pub fn param_types(&self) -> Option<&[Type]> {
         self.param_types.as_deref()
     }
+
+    /// Проверяет, является ли символ функцией
+    pub fn is_function(&self) -> bool {
+        matches!(self.kind, SymbolKind::Function)
+    }
 }
 
 /// Таблица символов с поддержкой вложенных областей видимости
@@ -310,7 +315,6 @@ impl SymbolTable {
                         output.push_str(&format!(" [размер: {}]", size));
                     }
 
-                    // Для структур выводим поля
                     if let Some(fields) = &symbol.fields {
                         output.push_str(" {\n");
                         let mut sorted_fields: Vec<(&String, &Type)> = fields.iter().collect();
