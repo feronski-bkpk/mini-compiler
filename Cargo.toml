@@ -1,9 +1,9 @@
 [package]
 name = "mini-compiler"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 authors = ["Feronski <feronski@mail.ru>"]
-description = "A minimal C-like language compiler with x86-64 code generation"
+description = "A minimal C-like language compiler with control flow, short-circuit evaluation, and x86-64 code generation"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/feronski-bkpk/mini-compiler"
 readme = "README.md"
@@ -41,6 +41,12 @@ doc = true
 [[example]]
 name = "demo"
 path = "examples/demo_sp1.rs"
+test = true
+doc = true
+
+[[example]]
+name = "sprint6_demo"
+path = "examples/sprint6_demo.rs"
 test = true
 doc = true
 

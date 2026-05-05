@@ -1,31 +1,29 @@
 # Program: MiniC IR
-# Generated: 2026-04-20 11:16:23
+# Generated: 2026-05-04 13:20:21
 
 function main: int ()
-  main_1:
-
-  main_2:
+  L1_001_entry:
     PARAM 0, 5
     t1 = CALL factorial, 5
     RETURN t1
 
 
 function factorial: int (int n)
-  factorial_1:
+  L2_001_entry:
     t1 = CMP_LE n, 1
-    JUMP_IF t1, factorial_2
-    JUMP factorial_3
+    JUMP_IF_NOT t1, L2_003_else
+    JUMP L2_002_then
 
-  factorial_2:
+  L2_002_then:
     RETURN 1
 
-  factorial_3:
+  L2_003_else:
     t2 = SUB n, 1
     PARAM 0, t2
     t3 = CALL factorial, t2
     t4 = MUL n, t3
     RETURN t4
 
-  factorial_4:
+  L2_004_endif:
 
 

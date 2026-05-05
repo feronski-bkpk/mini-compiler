@@ -33,6 +33,8 @@ pub enum SemanticErrorKind {
     InvalidExpression,
     /// Выход за пределы области видимости
     ScopeError,
+    InvalidBreak,
+    InvalidContinue,
 }
 
 /// Семантическая ошибка
@@ -104,6 +106,8 @@ impl fmt::Display for SemanticError {
             SemanticErrorKind::AssignmentTypeMismatch => "несоответствие типов при присваивании",
             SemanticErrorKind::InvalidExpression => "недопустимое выражение",
             SemanticErrorKind::ScopeError => "ошибка области видимости",
+            SemanticErrorKind::InvalidBreak => "Некорректный break",
+            SemanticErrorKind::InvalidContinue => "Некорректный continue",
         };
 
         writeln!(f, "семантическая ошибка: {}", error_type)?;

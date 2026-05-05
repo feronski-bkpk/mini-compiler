@@ -13,6 +13,7 @@ pub enum IRType {
     String,
     Struct(String),
     Pointer(Box<IRType>),
+    Array(Box<IRType>, usize),
     Unknown,
 }
 
@@ -26,13 +27,13 @@ impl fmt::Display for IRType {
             IRType::String => write!(f, "string"),
             IRType::Struct(name) => write!(f, "struct {}", name),
             IRType::Pointer(inner) => write!(f, "{}*", inner),
+            IRType::Array(inner, size) => write!(f, "{}[{}]", inner, size),
             IRType::Unknown => write!(f, "?"),
         }
     }
 }
 
 impl IRType {
-    /// Возвращает размер типа в байтах
     pub fn size(&self) -> usize {
         match self {
             IRType::Int => 4,
@@ -42,12 +43,12 @@ impl IRType {
             IRType::String => 8,
             IRType::Struct(_) => 0,
             IRType::Pointer(_) => 8,
+            IRType::Array(inner, count) => inner.size() * count,
             IRType::Unknown => 0,
         }
     }
 }
 
-/// Тип операнда в IR (без Hash для Operand)
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedOperand {
     pub operand: Operand,
@@ -58,32 +59,30 @@ impl TypedOperand {
     pub fn new(operand: Operand, typ: IRType) -> Self {
         Self { operand, typ }
     }
-
     pub fn with_type(mut self, typ: IRType) -> Self {
         self.typ = typ;
         self
     }
 }
 
-/// Тип операнда в IR
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operand {
-    /// Временная переменная (виртуальный регистр)
     Temporary(String),
-    /// Имя переменной
     Variable(String),
-    /// Целочисленный литерал
     IntLiteral(i32),
-    /// Вещественный литерал
     FloatLiteral(f64),
-    /// Булев литерал
     BoolLiteral(bool),
-    /// Строковый литерал
     StringLiteral(String),
-    /// Метка базового блока
     Label(String),
-    /// Адрес в памяти (база + смещение)
-    MemoryAddress { base: String, offset: i32 },
+    MemoryAddress {
+        base: String,
+        offset: i32,
+    },
+    ArrayAccess {
+        base: String,
+        index: Box<Operand>,
+        stride: usize,
+    },
 }
 
 impl Hash for Operand {
@@ -100,6 +99,15 @@ impl Hash for Operand {
             Operand::MemoryAddress { base, offset } => {
                 base.hash(state);
                 offset.hash(state);
+            }
+            Operand::ArrayAccess {
+                base,
+                index,
+                stride,
+            } => {
+                base.hash(state);
+                index.hash(state);
+                stride.hash(state);
             }
         }
     }
@@ -122,11 +130,17 @@ impl fmt::Display for Operand {
                     write!(f, "[{}+{}]", base, offset)
                 }
             }
+            Operand::ArrayAccess {
+                base,
+                index,
+                stride,
+            } => {
+                write!(f, "{}[{}*{}]", base, index, stride)
+            }
         }
     }
 }
 
-/// Инструкции IR (трехадресный код)
 #[derive(Debug, Clone, PartialEq)]
 pub enum IRInstruction {
     Add(Operand, Operand, Operand),
@@ -148,10 +162,25 @@ pub enum IRInstruction {
     CmpGt(Operand, Operand, Operand),
     CmpGe(Operand, Operand, Operand),
 
+    CmpEqF(Operand, Operand, Operand),
+    CmpNeF(Operand, Operand, Operand),
+    CmpLtF(Operand, Operand, Operand),
+    CmpLeF(Operand, Operand, Operand),
+    CmpGtF(Operand, Operand, Operand),
+    CmpGeF(Operand, Operand, Operand),
+
+    CmpLtU(Operand, Operand, Operand),
+    CmpLeU(Operand, Operand, Operand),
+    CmpGtU(Operand, Operand, Operand),
+    CmpGeU(Operand, Operand, Operand),
+
     Load(Operand, Operand),
     Store(Operand, Operand),
     Alloca(Operand, u32),
     Gep(Operand, Operand, u32),
+
+    ArrayLoad(Operand, Operand, Operand),
+    ArrayStore(Operand, Operand, Operand),
 
     Jump(Operand),
     JumpIf(Operand, Operand),
@@ -164,10 +193,12 @@ pub enum IRInstruction {
     Param(u32, Operand),
 
     Move(Operand, Operand),
+
+    IntToFloat(Operand, Operand),
+    FloatToInt(Operand, Operand),
 }
 
 impl IRInstruction {
-    /// Возвращает все операнды инструкции
     pub fn operands(&self) -> Vec<&Operand> {
         match self {
             IRInstruction::Add(_, s1, s2) => vec![s1, s2],
@@ -186,10 +217,22 @@ impl IRInstruction {
             IRInstruction::CmpLe(_, s1, s2) => vec![s1, s2],
             IRInstruction::CmpGt(_, s1, s2) => vec![s1, s2],
             IRInstruction::CmpGe(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpEqF(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpNeF(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpLtF(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpLeF(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpGtF(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpGeF(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpLtU(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpLeU(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpGtU(_, s1, s2) => vec![s1, s2],
+            IRInstruction::CmpGeU(_, s1, s2) => vec![s1, s2],
             IRInstruction::Load(_, a) => vec![a],
             IRInstruction::Store(a, s) => vec![a, s],
             IRInstruction::Alloca(_, _) => vec![],
             IRInstruction::Gep(_, b, _) => vec![b],
+            IRInstruction::ArrayLoad(_, base, index) => vec![base, index],
+            IRInstruction::ArrayStore(base, index, val) => vec![base, index, val],
             IRInstruction::Jump(l) => vec![l],
             IRInstruction::JumpIf(c, l) => vec![c, l],
             IRInstruction::JumpIfNot(c, l) => vec![c, l],
@@ -204,10 +247,11 @@ impl IRInstruction {
             IRInstruction::Return(None) => vec![],
             IRInstruction::Param(_, v) => vec![v],
             IRInstruction::Move(_, s) => vec![s],
+            IRInstruction::IntToFloat(_, s) => vec![s],
+            IRInstruction::FloatToInt(_, s) => vec![s],
         }
     }
 
-    /// Проверяет, является ли инструкция управляющей (завершает блок)
     pub fn is_terminator(&self) -> bool {
         matches!(
             self,
@@ -218,7 +262,6 @@ impl IRInstruction {
         )
     }
 
-    /// Возвращает тип результата инструкции
     pub fn result_type(
         &self,
         operand_types: &std::collections::HashMap<String, IRType>,
@@ -234,7 +277,20 @@ impl IRInstruction {
             | IRInstruction::CmpLt(_, _, _)
             | IRInstruction::CmpLe(_, _, _)
             | IRInstruction::CmpGt(_, _, _)
-            | IRInstruction::CmpGe(_, _, _) => Some(IRType::Bool),
+            | IRInstruction::CmpGe(_, _, _)
+            | IRInstruction::CmpEqF(_, _, _)
+            | IRInstruction::CmpNeF(_, _, _)
+            | IRInstruction::CmpLtF(_, _, _)
+            | IRInstruction::CmpLeF(_, _, _)
+            | IRInstruction::CmpGtF(_, _, _)
+            | IRInstruction::CmpGeF(_, _, _)
+            | IRInstruction::CmpLtU(_, _, _)
+            | IRInstruction::CmpLeU(_, _, _)
+            | IRInstruction::CmpGtU(_, _, _)
+            | IRInstruction::CmpGeU(_, _, _) => Some(IRType::Bool),
+            IRInstruction::IntToFloat(_, _) => Some(IRType::Float),
+            IRInstruction::FloatToInt(_, _) => Some(IRType::Int),
+            IRInstruction::ArrayLoad(_, _, _) => Some(IRType::Int),
             IRInstruction::Load(d, _) => {
                 if let Operand::Temporary(name) = d {
                     operand_types.get(name).cloned()
@@ -273,10 +329,26 @@ impl fmt::Display for IRInstruction {
             IRInstruction::CmpLe(d, s1, s2) => write!(f, "{} = CMP_LE {}, {}", d, s1, s2),
             IRInstruction::CmpGt(d, s1, s2) => write!(f, "{} = CMP_GT {}, {}", d, s1, s2),
             IRInstruction::CmpGe(d, s1, s2) => write!(f, "{} = CMP_GE {}, {}", d, s1, s2),
+            IRInstruction::CmpEqF(d, s1, s2) => write!(f, "{} = CMP_EQF {}, {}", d, s1, s2),
+            IRInstruction::CmpNeF(d, s1, s2) => write!(f, "{} = CMP_NEF {}, {}", d, s1, s2),
+            IRInstruction::CmpLtF(d, s1, s2) => write!(f, "{} = CMP_LTF {}, {}", d, s1, s2),
+            IRInstruction::CmpLeF(d, s1, s2) => write!(f, "{} = CMP_LEF {}, {}", d, s1, s2),
+            IRInstruction::CmpGtF(d, s1, s2) => write!(f, "{} = CMP_GTF {}, {}", d, s1, s2),
+            IRInstruction::CmpGeF(d, s1, s2) => write!(f, "{} = CMP_GEF {}, {}", d, s1, s2),
+            IRInstruction::CmpLtU(d, s1, s2) => write!(f, "{} = CMP_LTU {}, {}", d, s1, s2),
+            IRInstruction::CmpLeU(d, s1, s2) => write!(f, "{} = CMP_LEU {}, {}", d, s1, s2),
+            IRInstruction::CmpGtU(d, s1, s2) => write!(f, "{} = CMP_GTU {}, {}", d, s1, s2),
+            IRInstruction::CmpGeU(d, s1, s2) => write!(f, "{} = CMP_GEU {}, {}", d, s1, s2),
             IRInstruction::Load(d, a) => write!(f, "{} = LOAD {}", d, a),
             IRInstruction::Store(a, s) => write!(f, "STORE {}, {}", a, s),
             IRInstruction::Alloca(d, size) => write!(f, "{} = ALLOCA {}", d, size),
             IRInstruction::Gep(d, b, idx) => write!(f, "{} = GEP {}, {}", d, b, idx),
+            IRInstruction::ArrayLoad(d, base, index) => {
+                write!(f, "{} = ARRAY_LOAD {}, {}", d, base, index)
+            }
+            IRInstruction::ArrayStore(base, index, val) => {
+                write!(f, "ARRAY_STORE {}, {}, {}", base, index, val)
+            }
             IRInstruction::Jump(l) => write!(f, "JUMP {}", l),
             IRInstruction::JumpIf(c, l) => write!(f, "JUMP_IF {}, {}", c, l),
             IRInstruction::JumpIfNot(c, l) => write!(f, "JUMP_IF_NOT {}, {}", c, l),
@@ -302,6 +374,8 @@ impl fmt::Display for IRInstruction {
             IRInstruction::Return(None) => write!(f, "RETURN"),
             IRInstruction::Param(idx, v) => write!(f, "PARAM {}, {}", idx, v),
             IRInstruction::Move(d, s) => write!(f, "{} = MOVE {}", d, s),
+            IRInstruction::IntToFloat(d, s) => write!(f, "{} = INT_TO_FLOAT {}", d, s),
+            IRInstruction::FloatToInt(d, s) => write!(f, "{} = FLOAT_TO_INT {}", d, s),
         }
     }
 }

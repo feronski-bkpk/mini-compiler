@@ -1,6 +1,6 @@
 # Mini Compiler
 
-**Минимальный компилятор C-подобного языка, написанный на Rust с полной поддержкой LL(1) грамматики, семантическим анализом, генерацией промежуточного представления (IR) и **генерацией x86-64 ассемблерного кода**.**
+**Минимальный компилятор C-подобного языка, написанный на Rust с полной поддержкой LL(1) грамматики, семантическим анализом, генерацией промежуточного представления (IR) и генерацией x86-64 ассемблерного кода.**
 
 ## Оглавление
 
@@ -12,6 +12,8 @@
 - [Использование CLI](#использование-cli)
 - [Генерация промежуточного представления (IR)](#генерация-промежуточного-представления-ir)
 - [Генерация x86-64 ассемблерного кода](#генерация-x86-64-ассемблерного-кода)
+- [Управляющие конструкции](#управляющие-конструкции-sprint-6)
+- [Короткая схема вычислений](#короткая-схема-вычислений)
 - [Семантический анализ](#семантический-анализ)
 - [Вывод типов (var)](#вывод-типов-var)
 - [Оптимизации IR](#оптимизации-ir)
@@ -36,89 +38,115 @@
 - **Поддержка кодировок**: UTF-8
 - **Окончания строк**: Unix (`\n`) и Windows (`\r\n`)
 
+### Новые возможности Sprint 6
+
+| Возможность               | Описание                                                    |
+|---------------------------|-------------------------------------------------------------|
+| **Условные операторы**    | `if`, `if-else`, вложенные условия с правильными метками    |
+| **Циклы**                 | `while`, `for` с оптимизацией счетных циклов                |
+| **Switch**                | Оператор выбора `switch` с `case` и `default`               |
+| **Break/Continue**        | Выход из цикла и переход к следующей итерации               |
+| **Короткая схема**        | `&&` и `\|\|` не вычисляют правый операнд при необходимости |
+| **Float операции**        | Сравнения через `ucomisd`, приведение `int→float`           |
+| **Беззнаковые сравнения** | `setb`/`seta` для беззнаковых операций                      |
+| **Массивы**               | Статические массивы фиксированного размера                  |
+
 ## Структура проекта
 
 ```
 mini-compiler/
-├── src/                          # Исходный код
-│   ├── common/                   # Общие типы данных
-│   │   ├── mod.rs                # Утилиты
-│   │   ├── token.rs              # Токены
-│   │   └── position.rs           # Позиция в исходном коде
-│   ├── lexer/                    # Лексический анализатор
-│   │   ├── mod.rs                # Основной модуль
-│   │   ├── scanner.rs            # Сканер (основная логика)
-│   │   └── error.rs              # Ошибки лексического анализа
-│   ├── parser/                   # Парсер
-│   │   ├── mod.rs                # Экспорт модуля
-│   │   ├── parser.rs             # Рекурсивный спуск
-│   │   ├── ast.rs                # Структуры AST
-│   │   ├── error.rs              # Ошибки парсера с метриками
-│   │   ├── visitor.rs            # Паттерн Visitor
-│   │   ├── pretty_printer.rs     # Текстовый вывод AST
-│   │   ├── dot_generator.rs      # Graphviz DOT генератор
-│   │   ├── json_generator.rs     # JSON генератор
-│   │   ├── ll1.rs                # LL(1) анализ (First/Follow)
-│   │   ├── error_productions.rs  # Продукции для ошибок
-│   │   └── grammar.txt           # Формальная грамматика
-│   ├── semantic/                 # Семантический анализ
-│   │   ├── mod.rs                # Экспорт модуля
-│   │   ├── analyzer.rs           # Основной анализатор
-│   │   ├── symbol_table.rs       # Таблица символов
-│   │   ├── type_system.rs        # Система типов
-│   │   ├── errors.rs             # Семантические ошибки
-│   │   └── pretty_printer.rs     # Вывод декорированного AST
-│   ├── ir/                       # Промежуточное представление
-│   │   ├── mod.rs                # Экспорт модуля
-│   │   ├── ir_instructions.rs    # Определения инструкций IR
-│   │   ├── ir_generator.rs       # Генератор IR из AST
-│   │   ├── basic_block.rs        # Базовые блоки и CFG
-│   │   ├── control_flow.rs       # Построение CFG
-│   │   ├── ir_printer.rs         # Вывод IR (текст, DOT, JSON)
-│   │   └── peephole_optimizer.rs # Оптимизации IR
-│   ├── codegen/                  # Генерация x86-64 кода
-│   │   ├── mod.rs                # Экспорт модуля
-│   │   ├── x86_generator.rs      # Генератор x86-64 ассемблера
-│   │   ├── stack_frame.rs        # Управление стековым фреймом
-│   │   ├── register_allocator.rs # Аллокатор регистров
-│   │   └── abi.rs                # System V AMD64 ABI константы
-│   ├── runtime/                  # Рантайм-библиотека
-│   │   └── runtime.asm           # Ассемблерные функции (print_int, exit, etc.)
-│   ├── preprocessor/             # Препроцессор
-│   │   ├── mod.rs                # Основной модуль
-│   │   ├── macros.rs             # Таблица макросов
-│   │   └── error.rs              # Ошибки препроцессора
-│   ├── utils/                    # Вспомогательные функции
-│   ├── lib.rs                    # Точка входа библиотеки
-│   └── main.rs                   # Точка входа CLI
-├── tests/                        # Тестовые файлы
-│   ├── lexer/                    # Тесты лексера
-│   ├── parser/                   # Тесты парсера
-│   ├── ir/                       # Тесты IR
-│   ├── codegen/                  # Тесты кодогенерации
-│   ├── lexer_tests.rs            # Тесты лексера
-│   ├── parser_tests.rs           # Тесты парсера
-│   ├── preprocessor_tests.rs     # Тесты препроцессора
-│   ├── integration_tests.rs      # Интеграционные тесты
-│   ├── ll1_tests.rs              # Тесты LL(1) анализа
-│   ├── semantic_tests.rs         # Тесты семантического анализа
-│   ├── ir_tests.rs               # Тесты IR генерации
-│   ├── ir_optimization_tests.rs  # Тесты оптимизаций
-│   ├── ir_golden_tests.rs        # Golden тесты IR
-│   ├── codegen_tests.rs          # Тесты кодогенерации
-│   ├── integration_codegen.rs    # Интеграционные тесты кодогенерации
-│   ├── abi_compliance_tests.rs   # ABI compliance тесты
-│   └── bugs_tests.rs             # Тесты исправленных ошибок
-├── examples/                     # Демонстрационные файлы
-├── docs/                         # Документация
-│   ├── CHECKLIST.md              # Чек-лист по спринтам
-│   ├── language_spec.md          # Спецификация языка
-│   └── grammar.md                # Формальная грамматика
-├── Cargo.toml                    # Конфигурация Cargo
-├── Cargo.lock                    # Версии зависимостей
-├── Makefile                      # Система сборки
-├── README.md                     # Этот файл
-└── .gitignore                    # Игнорируемые файлы Git
+├── src/                              # Исходный код
+│   ├── common/                       # Общие типы данных
+│   │   ├── mod.rs                    # Утилиты
+│   │   ├── token.rs                  # Токены (18 ключевых слов)
+│   │   └── position.rs               # Позиция в исходном коде
+│   ├── lexer/                        # Лексический анализатор
+│   │   ├── mod.rs                    # Основной модуль
+│   │   ├── scanner.rs                # Сканер (основная логика)
+│   │   └── error.rs                  # Ошибки лексического анализа
+│   ├── parser/                       # Парсер
+│   │   ├── mod.rs                    # Экспорт модуля
+│   │   ├── parser.rs                 # Рекурсивный спуск
+│   │   ├── ast.rs                    # Структуры AST (включая Switch, Array)
+│   │   ├── error.rs                  # Ошибки парсера с метриками
+│   │   ├── visitor.rs                # Паттерн Visitor
+│   │   ├── pretty_printer.rs         # Текстовый вывод AST
+│   │   ├── dot_generator.rs          # Graphviz DOT генератор
+│   │   ├── json_generator.rs         # JSON генератор
+│   │   ├── ll1.rs                    # LL(1) анализ (First/Follow)
+│   │   ├── error_productions.rs      # Продукции для ошибок
+│   │   └── grammar.txt               # Формальная грамматика
+│   ├── semantic/                     # Семантический анализ
+│   │   ├── mod.rs                    # Экспорт модуля
+│   │   ├── analyzer.rs               # Основной анализатор
+│   │   ├── symbol_table.rs           # Таблица символов
+│   │   ├── type_system.rs            # Система типов
+│   │   ├── errors.rs                 # Семантические ошибки
+│   │   └── pretty_printer.rs         # Вывод декорированного AST
+│   ├── ir/                           # Промежуточное представление
+│   │   ├── mod.rs                    # Экспорт модуля
+│   │   ├── ir_instructions.rs        # Определения инструкций IR
+│   │   ├── ir_generator.rs           # Генератор IR из AST
+│   │   ├── basic_block.rs            # Базовые блоки и CFG
+│   │   ├── control_flow.rs           # Построение CFG
+│   │   ├── ir_printer.rs             # Вывод IR (текст, DOT, JSON)
+│   │   └── peephole_optimizer.rs     # Оптимизации IR
+│   ├── codegen/                      # Генерация x86-64 кода
+│   │   ├── mod.rs                    # Экспорт модуля
+│   │   ├── x86_generator.rs          # Генератор x86-64 ассемблера
+│   │   ├── control_flow_generator.rs # Генератор управляющих конструкций
+│   │   ├── expression_generator.rs   # Генератор выражений
+│   │   ├── label_manager.rs          # Менеджер меток
+│   │   ├── stack_frame.rs            # Управление стековым фреймом
+│   │   ├── register_allocator.rs     # Аллокатор регистров
+│   │   └── abi.rs                    # System V AMD64 ABI константы
+│   ├── runtime/                      # Рантайм-библиотека
+│   │   └── runtime.asm               # Ассемблерные функции (print_int, exit, etc.)
+│   ├── preprocessor/                 # Препроцессор
+│   │   ├── mod.rs                    # Основной модуль
+│   │   ├── macros.rs                 # Таблица макросов
+│   │   └── error.rs                  # Ошибки препроцессора
+│   ├── utils/                        # Вспомогательные функции
+│   ├── lib.rs                        # Точка входа библиотеки
+│   └── main.rs                       # Точка входа CLI
+├── tests/                            # Тестовые файлы
+│   ├── control_flow/                 # Тесты потока управления (Sprint 6)
+│   │   ├── valid/
+│   │   │   ├── conditionals/         # Тесты условных операторов
+│   │   │   ├── loops/                # Тесты циклов
+│   │   │   ├── logical_ops/          # Тесты логических операторов
+│   │   │   └── complex_expressions/  # Тесты сложных выражений
+│   │   └── invalid/
+│   │       ├── infinite_loops/       # Бесконечные циклы
+│   │       └── type_errors/          # Ошибки типов
+│   ├── control_flow_tests.rs         # Тесты потока управления
+│   ├── lexer/                        # Тесты лексера
+│   ├── parser/                       # Тесты парсера
+│   ├── ir/                           # Тесты IR
+│   ├── codegen/                      # Тесты кодогенерации
+│   ├── lexer_tests.rs                # Тесты лексера
+│   ├── parser_tests.rs               # Тесты парсера
+│   ├── preprocessor_tests.rs         # Тесты препроцессора
+│   ├── integration_tests.rs          # Интеграционные тесты
+│   ├── ll1_tests.rs                  # Тесты LL(1) анализа
+│   ├── semantic_tests.rs             # Тесты семантического анализа
+│   ├── ir_tests.rs                   # Тесты IR генерации
+│   ├── ir_optimization_tests.rs      # Тесты оптимизаций
+│   ├── ir_golden_tests.rs            # Golden тесты IR
+│   ├── codegen_tests.rs              # Тесты кодогенерации
+│   ├── integration_codegen.rs        # Интеграционные тесты кодогенерации
+│   ├── abi_compliance_tests.rs       # ABI compliance тесты
+│   └── bugs_tests.rs                 # Тесты исправленных ошибок
+├── examples/                         # Демонстрационные файлы
+├── docs/                             # Документация
+│   ├── CHECKLIST.md                  # Чек-лист по спринтам
+│   ├── language_spec.md              # Спецификация языка
+│   └── grammar.md                    # Формальная грамматика
+├── Cargo.toml                        # Конфигурация Cargo
+├── Cargo.lock                        # Версии зависимостей
+├── Makefile                          # Система сборки
+├── README.md                         # Этот файл
+└── .gitignore                        # Игнорируемые файлы Git
 ```
 
 ## Установка и сборка
@@ -204,8 +232,19 @@ make test-semantic           # Семантические тесты
 make test-ir                 # Тесты IR генерации
 make test-ir-opt             # Тесты оптимизаций
 make test-codegen            # Тесты кодогенерации
+make test-control-flow       # Тесты потока управления
 make test-abi                # ABI compliance тесты
 make test-all                # Все тесты
+```
+
+### Демонстрации Sprint 6 (НОВЫЕ!)
+```bash
+make sprint6-demo            # Полная демонстрация всех новых возможностей
+make switch-demo             # Демонстрация Switch-case-default
+make break-continue-demo     # Демонстрация Break и Continue
+make short-circuit-demo      # Демонстрация короткой схемы вычислений
+make float-demo              # Демонстрация Float и приведения типов
+make array-demo              # Демонстрация массивов
 ```
 
 ### Демонстрации
@@ -235,28 +274,28 @@ make docs                    # Генерация документации
 make docs-private            # Документация с приватными элементами
 ```
 
+### Примеры использования
+```bash
+make example                 # Примеры использования компилятора
+```
+
 ## Быстрый старт
 
-### 1. Быстрый запуск всех демонстраций
+### 1. Быстрый запуск всех демонстраций Sprint 6
 
 ```bash
-# Создать тестовые файлы
-make create-test-files
-
 # Собрать проект
 make build
 
-# Запустить все демонстрации
-make ast-demo
-make ir-demo
-make codegen-demo
-make optimization-demo
-make semantic-demo
-make var-demo
-make inc-demo
-make error-demo
-make ll1-demo
-make full-pipeline
+# Запустить демонстрацию Sprint 6
+make sprint6-demo
+
+# Или отдельные демонстрации
+make switch-demo
+make break-continue-demo
+make short-circuit-demo
+make float-demo
+make array-demo
 ```
 
 ### 2. Полный пайплайн компиляции вручную
@@ -312,7 +351,7 @@ cargo run -- full --input test.src --ast-format dot --output ast.dot --show-metr
 ```bash
 # Информация
 cargo run -- info                    # Базовая информация
-cargo run -- info --verbose          # Подробная информация
+cargo run -- info --verbose          # Подробная информация о всех возможностях
 cargo run -- spec                    # Спецификация языка
 
 # Лексический анализ
@@ -360,6 +399,9 @@ cargo run -- inc-demo
 cargo run -- error-demo --input examples/errors.src
 cargo run -- ll1 --show-first --show-follow
 
+# Пример Sprint 6
+cargo run --example sprint6_demo
+
 # Тестирование
 cargo run -- test
 ```
@@ -392,13 +434,17 @@ cargo run -- test
 
 ### Поддерживаемые инструкции
 
-| Категория | Инструкции |
-|-----------|------------|
-| **Арифметические** | `ADD → add`, `SUB → sub`, `MUL → imul`, `DIV → idiv` |
-| **Логические** | `AND → and`, `OR → or`, `NOT → not`, `XOR → xor` |
-| **Сравнения** | `CMP_* → cmp + set*` |
-| **Память** | `LOAD → mov reg, [mem]`, `STORE → mov [mem], reg` |
-| **Управление потоком** | `JUMP → jmp`, `JUMP_IF → jnz`, `CALL → call`, `RETURN → ret` |
+| Категория              | Инструкции                                                     |
+|------------------------|----------------------------------------------------------------|
+| **Арифметические**     | `ADD → add`, `SUB → sub`, `MUL → imul`, `DIV → idiv`           |
+| **Логические**         | `AND → and`, `OR → or`, `NOT → not`, `XOR → xor`               |
+| **Сравнения**          | `CMP_* → cmp + set*`                                           |
+| **Float сравнения**    | `CMP_*F → ucomisd + set*`                                      |
+| **Беззнаковые**        | `CMP_*U → setb/seta`                                           |
+| **Память**             | `LOAD → mov reg, [mem]`, `STORE → mov [mem], reg`              |
+| **Массивы**            | `ArrayLoad`, `ArrayStore`                                      |
+| **Преобразование**     | `IntToFloat → cvtsi2sd`, `FloatToInt → cvttsd2si`              |
+| **Управление потоком** | `JUMP → jmp`, `JUMP_IF → jnz`, `CALL → call`, `RETURN → ret`   |
 
 ### System V AMD64 ABI
 
@@ -482,6 +528,114 @@ add:
     ret
 ```
 
+**If-Else:**
+```c
+// Исходный код
+if (x > 0) {
+    y = 10;
+} else {
+    y = 20;
+}
+```
+
+```asm
+; Сгенерированный ассемблер
+    mov eax, [rbp-8]      ; Загрузить x
+    cmp eax, 0
+    jle .Lelse            ; Переход в else если x <= 0
+    mov dword [rbp-12], 10 ; y = 10
+    jmp .Lendif
+.Lelse:
+    mov dword [rbp-12], 20 ; y = 20
+.Lendif:
+```
+
+**While цикл:**
+```c
+// Исходный код
+while (i < 10) {
+    sum = sum + i;
+    i = i + 1;
+}
+```
+
+```asm
+; Сгенерированный ассемблер
+.Lwhile_cond:
+    mov eax, [rbp-4]       ; Загрузить i
+    cmp eax, 10
+    jge .Lwhile_end        ; Выход если i >= 10
+    mov eax, [rbp-8]       ; Загрузить sum
+    add eax, [rbp-4]       ; Добавить i
+    mov [rbp-8], eax       ; Сохранить sum
+    mov eax, [rbp-4]
+    add eax, 1
+    mov [rbp-4], eax
+    jmp .Lwhile_cond
+.Lwhile_end:
+```
+
+**Короткая схема (Short-Circuit):**
+```c
+// Исходный код
+if (a != 0 && b / a > 2) {
+    result = 1;
+}
+```
+
+```asm
+; Сгенерированный ассемблер
+    mov eax, [rbp-8]       ; Загрузить a
+    cmp eax, 0
+    je .Lfalse             ; Если a == 0, короткая схема -> false
+    mov eax, [rbp-12]      ; Загрузить b
+    cdq
+    idiv dword [rbp-8]     ; Разделить на a (только если a != 0)
+    cmp eax, 2
+    jg .Ltrue
+    jmp .Lfalse
+.Ltrue:
+    mov eax, 1
+    jmp .Lend
+.Lfalse:
+    mov eax, 0
+.Lend:
+```
+
+**Switch:**
+```c
+// Исходный код
+switch (x) {
+    case 1: result = 10;
+    case 2: result = 20;
+    default: result = 0;
+}
+```
+
+```asm
+; Сгенерированный ассемблер
+    cmp eax, 1
+    sete al
+    movzx rax, al
+    cmp rax, 0
+    jne .L_case1
+    cmp eax, 2
+    sete al
+    movzx rax, al
+    cmp rax, 0
+    jne .L_case2
+    jmp .L_default
+.L_case1:
+    mov dword [rbp-X], 10
+    jmp .L_switch_end
+.L_case2:
+    mov dword [rbp-X], 20
+    jmp .L_switch_end
+.L_default:
+    mov dword [rbp-X], 0
+.L_switch_end:
+```
+
 ### Команды кодогенерации
 
 ```bash
@@ -527,7 +681,11 @@ IR использует формат трехадресного кода с по
 | **Арифметические** | `ADD`, `SUB`, `MUL`, `DIV`, `MOD`, `NEG` |
 | **Логические** | `AND`, `OR`, `NOT`, `XOR` |
 | **Сравнения** | `CMP_EQ`, `CMP_NE`, `CMP_LT`, `CMP_LE`, `CMP_GT`, `CMP_GE` |
+| **Float сравнения** | `CMP_EQF`, `CMP_NEF`, `CMP_LTF`, `CMP_LEF`, `CMP_GTF`, `CMP_GEF` |
+| **Беззнаковые сравнения** | `CMP_LTU`, `CMP_LEU`, `CMP_GTU`, `CMP_GEU` |
 | **Память** | `LOAD`, `STORE`, `ALLOCA`, `GEP` |
+| **Массивы** | `ArrayLoad`, `ArrayStore` |
+| **Преобразование** | `IntToFloat`, `FloatToInt` |
 | **Управление потоком** | `JUMP`, `JUMP_IF`, `JUMP_IF_NOT`, `LABEL`, `PHI` |
 | **Функции** | `CALL`, `RETURN`, `PARAM` |
 | **Данные** | `MOVE` |
@@ -628,48 +786,87 @@ function factorial: int (int n)
     RETURN t4
 ```
 
-## Оптимизации IR
-
-### Поддерживаемые оптимизации
-
-| Оптимизация | Пример |
-|-------------|--------|
-| **Свертка констант** | `3 + 4 → 7` |
-| **Алгебраические упрощения** | `x + 0 → x`, `x * 1 → x`, `x * 0 → 0` |
-| **Удаление мертвого кода** | Удаление неиспользуемых переменных |
-| **Сцепление переходов** | `JUMP L1; L1: JUMP L2 → JUMP L2` |
-
-### Пример оптимизации
-
-**До оптимизации:**
+**Switch:**
 ```
-t1 = ADD x, 0
-t2 = MUL t1, 1
-t3 = CMP_GT t2, 5
-JUMP_IF t3, L1
-JUMP L2
+function main: int ()
+  locals:
+    x: int
+    result: int
+
+  L1:
+    x = MOVE 2
+    result = MOVE 0
+    t1 = CMP_EQ x, 1
+    JUMP_IF t1, L_case1
+    t2 = CMP_EQ x, 2
+    JUMP_IF t2, L_case2
+    JUMP L_default
+
+  L_case1:
+    result = MOVE 10
+    JUMP L_switch_end
+
+  L_case2:
+    result = MOVE 20
+    JUMP L_switch_end
+
+  L_default:
+    result = MOVE 0
+    JUMP L_switch_end
+
+  L_switch_end:
+    RETURN result
 ```
 
-**После оптимизации:**
-```
-t1 = CMP_GT x, 5
-JUMP_IF t1, L1
-JUMP L2
-```
+## Управляющие конструкции
 
-### Запуск оптимизаций
+### If-Else
 
-```bash
-# Генерация IR с оптимизациями
-cargo run -- ir --input program.src --optimize
+Компилятор генерирует правильные последовательности условных переходов с уникальными метками для вложенных условий. Операторы отношения (`<`, `<=`, `>`, `>=`, `==`, `!=`) транслируются в соответствующие инструкции `set*` и условные переходы.
 
-# Подробный отчет об оптимизациях
-cargo run -- ir --input program.src --optimize --verbose
+### Switch-Case-Default
+
+Оператор выбора реализован через цепочку сравнений `CMP_EQ` с переходами `JUMP_IF` к блокам case. Если ни один case не совпал, выполняется блок default (или сразу переход к концу switch).
+
+### Циклы While и For
+
+Циклы `while` и `for` транслируются в структуры с метками:
+- **While**: `.while_cond` → условие → `.while_body` → `jmp .while_cond` → `.while_end`
+- **For**: транслируется в эквивалент `init; while (cond) { body; update; }`
+
+For-циклы с константными границами и инкрементом на 1 автоматически оптимизируются в счетные циклы.
+
+### Break и Continue
+
+- **Break**: генерирует `JUMP` к `.while_end` или `.for_end` текущего цикла
+- **Continue**: генерирует `JUMP` к `.while_cond` (для while) или `.for_update` (для for)
+
+Семантический анализатор проверяет, что `break` и `continue` используются только внутри циклов (`loop_depth > 0`).
+
+## Короткая схема вычислений
+
+Логические операторы `&&` и `||` реализуют короткую схему (short-circuit evaluation):
+
+- **AND (`&&`)**: `result = 0; if (!left) goto merge; result = right; merge:`
+- **OR (`||`)**: `result = 1; if (left) goto merge; result = right; merge:`
+
+Это позволяет безопасно писать код с потенциально опасными операциями:
+```c
+if (a != 0 && b / a > 2) { ... }  // деление только если a != 0
+if (x == 0 || 100 / x > 5) { ... } // деление только если x != 0
 ```
 
 ## Семантический анализ
 
 Семантический анализатор проверяет корректность программы на уровне типов и областей видимости.
+
+### Новые проверки
+
+| Проверка           | Описание                                                           |
+|--------------------|--------------------------------------------------------------------|
+| **Break/Continue** | Проверка, что `break`/`continue` используются только внутри циклов |
+| **Switch**         | Проверка типа выражения switch и уникальности case-значений        |
+| **Массивы**        | Проверка объявления массивов и доступа по индексу                  |
 
 ### Команды семантического анализа
 
@@ -721,9 +918,9 @@ Program [global scope]:
 
 ### Синтаксис
 ```c
-var x = 42;     // выводится int
-var y = 3.14;   // выводится float
-var z = true;   // выводится bool
+var x = 42;      // выводится int
+var y = 3.14;    // выводится float
+var z = true;    // выводится bool
 var s = "hello"; // выводится string
 ```
 
@@ -741,7 +938,54 @@ var s = "hello"; // выводится string
    x = 3.14;     // Ошибка: int != float
    ```
 
+## Оптимизации IR
+
+### Поддерживаемые оптимизации
+
+| Оптимизация                  | Пример                                  |
+|------------------------------|-----------------------------------------|
+| **Свертка констант**         | `3 + 4 → 7`                             |
+| **Алгебраические упрощения** | `x + 0 → x`, `x * 1 → x`, `x * 0 → 0`   |
+| **Удаление мертвого кода**   | Удаление неиспользуемых переменных      |
+| **Сцепление переходов**      | `JUMP L1; L1: JUMP L2 → JUMP L2`        |
+| **ЛИЦМ (LICM)**              | Вынос инвариантных вычислений из циклов |
+
+### Пример оптимизации
+
+**До оптимизации:**
+```
+t1 = ADD x, 0
+t2 = MUL t1, 1
+t3 = CMP_GT t2, 5
+JUMP_IF t3, L1
+JUMP L2
+```
+
+**После оптимизации:**
+```
+t1 = CMP_GT x, 5
+JUMP_IF t1, L1
+JUMP L2
+```
+
+### Запуск оптимизаций
+
+```bash
+# Генерация IR с оптимизациями
+cargo run -- ir --input program.src --optimize
+
+# Подробный отчет об оптимизациях
+cargo run -- ir --input program.src --optimize --verbose
+```
+
 ## Демонстрации
+
+### Демонстрация Sprint 6
+```bash
+make sprint6-demo
+# или
+cargo run --example sprint6_demo
+```
 
 ### Демонстрация кодогенерации
 ```bash
@@ -850,27 +1094,32 @@ make test-parser
 make test-semantic
 make test-ir
 make test-ir-opt
-make test-codegen          
+make test-codegen
+make test-control-flow
 make test-abi              
 make test-all              
 ```
 
-### Категории тестов
+### Статистика тестов
 
-| Категория | Файлы | Описание |
-|-----------|-------|----------|
-| Лексический анализ | `lexer_tests.rs` | 7 тестов |
-| Синтаксический анализ | `parser_tests.rs` | 27 тестов |
-| Препроцессор | `preprocessor_tests.rs` | 8 тестов |
-| Семантический анализ | `semantic_tests.rs` | 24 теста |
-| LL(1) анализ | `ll1_tests.rs` | 2 теста |
-| IR генерация | `ir_tests.rs` | 7 тестов |
-| IR оптимизации | `ir_optimization_tests.rs` | 3 теста |
-| Golden tests | `ir_golden_tests.rs` | 8 тестов |
-| **Кодогенерация** | `codegen_tests.rs` | **8 тестов** |
-| **ABI compliance** | `abi_compliance_tests.rs` | **5 тестов** |
-| Интеграционные | `integration_codegen.rs` | 4 теста |
-| Исправленные ошибки | `bugs_tests.rs` | 4 теста |
+| Категория             | Количество |
+|-----------------------|:----------:|
+| Unit tests (lib)      |     52     |
+| Parser tests          |     27     |
+| Semantic tests        |     24     |
+| Codegen tests         |     24     |
+| Control flow tests    |     24     |
+| Integration tests     |     33     |
+| IR tests              |     7      |
+| IR optimization tests |     3      |
+| IR golden tests       |     8      |
+| ABI compliance tests  |     5      |
+| Lexer tests           |     7      |
+| LL(1) tests           |     2      |
+| Preprocessor tests    |     8      |
+| Bugs tests            |     4      |
+| Doc-tests             |     28     |
+| **Всего**             |  **260+**  |
 
 ### Golden Tests
 
@@ -930,7 +1179,7 @@ cargo test --test ir_golden_tests
           │
           ▼
    ┌──────────────┐
-   │ Оптимизатор  │  ← Свертка констант, удаление мертвого кода
+   │ Оптимизатор  │  ← Свертка констант, удаление мертвого кода, LICM
    └──────────────┘
           │
           ▼
@@ -968,7 +1217,7 @@ cargo test --test ir_golden_tests
 - Рекурсивный спуск с LL(1) грамматикой
 - Полное AST с поддержкой инкрементов
 - 3 стратегии восстановления после ошибок
-- Поддержка `var` как типа
+- Поддержка `var`, `switch`, `break`, `continue`, массивов
 
 #### Семантический анализатор (`src/semantic/`)
 - Иерархическая таблица символов
@@ -978,6 +1227,7 @@ cargo test --test ir_golden_tests
 - Проверка вызовов функций
 - Проверка структур и доступа к полям
 - Вывод типов для `var`
+- Проверка `break`/`continue` внутри циклов
 - Вычисление размеров и смещений в памяти
 
 #### Генератор IR (`src/ir/`)
@@ -985,15 +1235,20 @@ cargo test --test ir_golden_tests
 - Построение базовых блоков и CFG
 - Поддержка всех конструкций языка
 - Сохранение информации о типах
+- Генерация короткой схемы для `&&` и `||`
 
 #### Оптимизатор IR (`src/ir/peephole_optimizer.rs`)
 - Свертка констант
 - Алгебраические упрощения
 - Удаление мертвого кода
 - Сцепление переходов
+- Вынос инвариантных вычислений из циклов (LICM)
 
 #### Генератор x86-64 кода (`src/codegen/`)
 - `x86_generator.rs` - трансляция IR в ассемблер
+- `control_flow_generator.rs` - генератор управляющих конструкций
+- `expression_generator.rs` - генератор выражений
+- `label_manager.rs` - менеджер меток
 - `stack_frame.rs` - управление стековым фреймом
 - `register_allocator.rs` - распределение регистров
 - `abi.rs` - System V AMD64 ABI константы
@@ -1054,16 +1309,18 @@ cargo run -- error-demo --input examples/errors.src --max-errors 10
 
 ## Поддерживаемые конструкции языка
 
-| Категория | Конструкции |
-|-----------|-------------|
-| **Функции** | Объявление, параметры, возвращаемые типы (`->`), рекурсия |
-| **Структуры** | Определение, поля, доступ (`.`), вложенность |
-| **Переменные** | Объявление, инициализация, присваивание, **вывод типов (`var`)** |
-| **Управление** | `if-else`, `while`, `for` |
-| **Инкременты** | `++x`, `x++`, `--x`, `x--` |
-| **Выражения** | Арифметика, сравнения, логика |
-| **Препроцессор** | `#define`, `#ifdef`, `#ifndef`, `#else`, `#endif` |
-| **Типы** | `int`, `float`, `bool`, `void`, `string`, `struct`, **`var`** |
+| Категория        | Конструкции                                                  |
+|------------------|--------------------------------------------------------------|
+| **Функции**      | Объявление, параметры, возвращаемые типы (`->`), рекурсия    |
+| **Структуры**    | Определение, поля, доступ (`.`), вложенность                 |
+| **Массивы**      | Статические массивы, доступ по индексу `[]`                  |
+| **Переменные**   | Объявление, инициализация, присваивание, вывод типов (`var`) |
+| **Управление**   | `if-else`, `switch-case-default`, `while`, `for`             |
+| **Переходы**     | `break`, `continue`                                          |
+| **Инкременты**   | `++x`, `x++`, `--x`, `x--`                                   |
+| **Выражения**    | Арифметика, сравнения, логика с короткой схемой              |
+| **Препроцессор** | `#define`, `#ifdef`, `#ifndef`, `#else`, `#endif`            |
+| **Типы**         | `int`, `float`, `bool`, `void`, `string`, `struct`, `var`    |
 
 ## Команда
 
@@ -1076,5 +1333,5 @@ cargo run -- error-demo --input examples/errors.src --max-errors 10
 - [Примеры использования](examples/)
 - [Чек-лист спринтов](docs/CHECKLIST.md)
 
-**Версия:** 0.5.0
-**Дата релиза:** Апрель 2026
+**Версия:** 0.6.0
+**Дата релиза:** Май 2026

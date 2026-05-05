@@ -770,13 +770,42 @@ fn handle_full_command(
             }
         };
 
-        if let Some(output_path) = output {
-            utils::write_file(&output_path, &output_text)?;
+        if let Some(ref output_path) = output.as_ref() {
+            utils::write_file(output_path, &output_text)?;
             if verbose {
                 println!("Результат записан в: {}", output_path.display());
             }
         } else {
             println!("\nAST:\n{}", output_text);
+        }
+    }
+
+    if parse_output.is_valid() {
+        if let Some(ast) = &parse_output.ast {
+            let mut analyzer = minic::semantic::SemanticAnalyzer::new();
+            let semantic_output = analyzer.analyze(ast.clone());
+
+            if !semantic_output.has_errors() {
+                let mut ir_generator = minic::ir::IRGenerator::new(semantic_output.symbol_table);
+                let ir_program = ir_generator.generate(semantic_output.decorated_ast.unwrap());
+
+                if verbose {
+                    println!("\nШаг 4: Генерация IR...");
+                    println!("{}", minic::ir::IRPrinter::to_text(&ir_program));
+
+                    println!("\nШаг 5: Генерация x86-64...");
+                }
+
+                let result = minic::codegen::generate_assembly(&ir_program, false);
+
+                if let Some(ref output_path) = output.as_ref() {
+                    let asm_path = output_path.with_extension("asm");
+                    utils::write_file(&asm_path, &result.assembly)?;
+                    if verbose {
+                        println!("Ассемблерный код записан в: {}", asm_path.display());
+                    }
+                }
+            }
         }
     }
 
@@ -1114,18 +1143,34 @@ fn handle_info_command(verbose: bool) -> Result<(), Box<dyn std::error::Error>> 
 
     if verbose {
         println!("Поддерживаемые команды:");
-        println!("  lex       - Лексический анализ исходного кода");
-        println!("  parse     - Синтаксический анализ и построение AST");
-        println!("  check     - Проверка синтаксиса");
-        println!("  test      - Запуск тестов");
-        println!("  docs      - Генерация документации");
-        println!("  preprocess- Обработка препроцессором");
-        println!("  full      - Полный пайплайн компиляции");
-        println!("  ll1       - LL(1) анализ грамматики");
-        println!("  error-demo- Демонстрация восстановления после ошибок");
-        println!("  inc-demo  - Демонстрация инкрементов/декрементов");
-        println!("  info      - Информация о компиляторе");
-        println!("  spec      - Спецификация языка");
+        println!("  lex        - Лексический анализ исходного кода");
+        println!("  parse      - Синтаксический анализ и построение AST");
+        println!("  semantic   - Семантический анализ");
+        println!("  ir         - Генерация промежуточного представления (IR)");
+        println!("  codegen    - Генерация x86-64 ассемблерного кода");
+        println!("  check      - Проверка синтаксиса");
+        println!("  test       - Запуск тестов");
+        println!("  docs       - Генерация документации");
+        println!("  preprocess - Обработка препроцессором");
+        println!("  full       - Полный пайплайн компиляции");
+        println!("  ll1        - LL(1) анализ грамматики");
+        println!("  error-demo - Демонстрация восстановления после ошибок");
+        println!("  inc-demo   - Демонстрация инкрементов/декрементов");
+        println!("  info       - Информация о компиляторе");
+        println!("  spec       - Спецификация языка");
+        println!();
+        println!("Поддерживаемые конструкции языка:");
+        println!("  - Условные операторы: if, if-else, switch-case-default");
+        println!("  - Циклы: while, for");
+        println!("  - Операторы перехода: break, continue");
+        println!("  - Функции с параметрами и возвращаемыми значениями");
+        println!("  - Структуры (struct) с доступом к полям");
+        println!("  - Массивы фиксированного размера");
+        println!("  - Автоматический вывод типов (var)");
+        println!("  - Логические операторы с короткой схемой (&&, ||)");
+        println!("  - Операторы инкремента и декремента (++, --)");
+        println!("  - Препроцессор с макросами и условной компиляцией");
+        println!("  - Преобразование типов (int -> float)");
         println!();
         println!("Форматы вывода:");
         println!("  text      - Текстовый формат (по умолчанию)");
@@ -1606,8 +1651,13 @@ fn handle_codegen_command(
             output.display()
         );
         println!(
-            "  ld -o program {}.o src/runtime/runtime.asm",
-            output.display()
+            "  ld -o program {}.o {}",
+            output.display(),
+            if cfg!(target_os = "linux") {
+                "src/runtime/runtime.o"
+            } else {
+                ""
+            }
         );
     }
 

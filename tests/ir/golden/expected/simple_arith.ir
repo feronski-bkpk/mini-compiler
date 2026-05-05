@@ -1,5 +1,5 @@
 # Program: MiniC IR
-# Generated: 2026-04-20 11:16:23
+# Generated: 2026-05-04 13:20:21
 
 function main: int ()
   locals:
@@ -7,16 +7,11 @@ function main: int ()
     b: int
     c: int
 
-  main_1:
-    t1 = MOVE 5
-    a = MOVE t1
-    t2 = MOVE 3
-    b = MOVE t2
-    t3 = ADD a, b
-    t4 = MOVE t3
-    c = MOVE t4
-
-  main_2:
-    RETURN t3
+  L1_001_entry:
+    a = MOVE 5
+    b = MOVE 3
+    t1 = ADD a, b
+    c = MOVE t1
+    RETURN c
 
 

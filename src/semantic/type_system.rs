@@ -22,6 +22,8 @@ pub enum Type {
         return_type: Box<Type>,
         param_types: Vec<Type>,
     },
+    /// Тип массива (элемент и размер)
+    Array(Box<Type>, usize),
 }
 
 impl fmt::Display for Type {
@@ -33,6 +35,7 @@ impl fmt::Display for Type {
             Type::Void => write!(f, "void"),
             Type::String => write!(f, "string"),
             Type::Struct(name) => write!(f, "struct {}", name),
+            Type::Array(inner, size) => write!(f, "{}[{}]", inner, size),
             Type::Function {
                 return_type,
                 param_types,
@@ -61,6 +64,9 @@ impl Type {
             crate::parser::ast::Type::String => Type::String,
             crate::parser::ast::Type::Struct(name) => Type::Struct(name.clone()),
             crate::parser::ast::Type::Inferred => Type::Int,
+            crate::parser::ast::Type::Array(inner, size) => {
+                Type::Array(Box::new(Type::from_ast(inner)), size.unwrap_or(0) as usize)
+            }
         }
     }
 
@@ -103,6 +109,7 @@ impl Type {
             Type::String => Some(8),
             Type::Struct(_name) => None,
             Type::Function { .. } => Some(8),
+            Type::Array(inner, count) => inner.size().map(|s| s * count),
         }
     }
 
@@ -146,6 +153,7 @@ impl Type {
             Type::String => Some(8),
             Type::Struct(_) => None,
             Type::Function { .. } => Some(8),
+            Type::Array(inner, count) => inner.size().map(|s| s * count),
         }
     }
 }
@@ -323,10 +331,10 @@ impl TypeChecker {
 /// Тип бинарной операции для проверки типов
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOpType {
-    Arithmetic,       // +, -, *, /, %
-    ArithmeticAssign, // +=, -=, *=, /=
-    Comparison,       // ==, !=, <, <=, >, >=
-    Logical,          // &&, ||
+    Arithmetic,
+    ArithmeticAssign,
+    Comparison,
+    Logical,
 }
 
 impl From<&crate::parser::ast::BinaryOp> for BinaryOpType {
@@ -350,11 +358,11 @@ impl From<&crate::parser::ast::BinaryOp> for BinaryOpType {
 /// Тип унарной операции для проверки типов
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnaryOpType {
-    Neg,       // -
-    Not,       // !
-    Plus,      // +
-    Increment, // ++
-    Decrement, // --
+    Neg,
+    Not,
+    Plus,
+    Increment,
+    Decrement,
 }
 
 impl From<&crate::parser::ast::UnaryOp> for UnaryOpType {

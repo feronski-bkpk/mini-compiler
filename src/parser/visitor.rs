@@ -16,6 +16,10 @@ pub trait Visitor<T> {
     fn visit_return_stmt(&mut self, return_stmt: &ReturnStmt) -> T;
     fn visit_expr_stmt(&mut self, expr_stmt: &ExprStmt) -> T;
     fn visit_empty_stmt(&mut self, empty_stmt: &EmptyStmt) -> T;
+    fn visit_break_stmt(&mut self, break_stmt: &BreakStmt) -> T;
+    fn visit_continue_stmt(&mut self, continue_stmt: &ContinueStmt) -> T;
+    fn visit_switch_stmt(&mut self, switch_stmt: &SwitchStmt) -> T;
+    fn visit_case_stmt(&mut self, case_stmt: &CaseStmt) -> T;
     fn visit_literal(&mut self, literal: &Literal) -> T;
     fn visit_identifier(&mut self, identifier: &IdentifierExpr) -> T;
     fn visit_binary(&mut self, binary: &BinaryExpr) -> T;
@@ -24,6 +28,7 @@ pub trait Visitor<T> {
     fn visit_call(&mut self, call: &CallExpr) -> T;
     fn visit_struct_access(&mut self, access: &StructAccessExpr) -> T;
     fn visit_grouped(&mut self, grouped: &GroupedExpr) -> T;
+    fn visit_array_access(&mut self, access: &ArrayAccessExpr) -> T;
 }
 
 /// Трейт для Visitor, который модифицирует AST
@@ -40,6 +45,10 @@ pub trait VisitorMut {
     fn visit_return_stmt(&mut self, return_stmt: &mut ReturnStmt);
     fn visit_expr_stmt(&mut self, expr_stmt: &mut ExprStmt);
     fn visit_empty_stmt(&mut self, empty_stmt: &mut EmptyStmt);
+    fn visit_break_stmt(&mut self, break_stmt: &mut BreakStmt);
+    fn visit_continue_stmt(&mut self, continue_stmt: &mut ContinueStmt);
+    fn visit_switch_stmt(&mut self, switch_stmt: &mut SwitchStmt);
+    fn visit_case_stmt(&mut self, case_stmt: &mut CaseStmt);
     fn visit_literal(&mut self, literal: &mut Literal);
     fn visit_identifier(&mut self, identifier: &mut IdentifierExpr);
     fn visit_binary(&mut self, binary: &mut BinaryExpr);
@@ -48,6 +57,7 @@ pub trait VisitorMut {
     fn visit_call(&mut self, call: &mut CallExpr);
     fn visit_struct_access(&mut self, access: &mut StructAccessExpr);
     fn visit_grouped(&mut self, grouped: &mut GroupedExpr);
+    fn visit_array_access(&mut self, access: &mut ArrayAccessExpr);
 }
 
 /// Базовый Visitor, который ничего не делает (возвращает ())
@@ -57,15 +67,9 @@ impl Visitor<()> for DefaultVisitor {
     fn visit_program(&mut self, program: &Program) {
         for decl in &program.declarations {
             match decl {
-                Declaration::Function(f) => {
-                    self.visit_function_decl(f);
-                }
-                Declaration::Struct(s) => {
-                    self.visit_struct_decl(s);
-                }
-                Declaration::Variable(v) => {
-                    self.visit_var_decl(v);
-                }
+                Declaration::Function(f) => self.visit_function_decl(f),
+                Declaration::Struct(s) => self.visit_struct_decl(s),
+                Declaration::Variable(v) => self.visit_var_decl(v),
             }
         }
     }
@@ -86,29 +90,16 @@ impl Visitor<()> for DefaultVisitor {
     fn visit_var_decl(&mut self, var_decl: &VarDecl) {
         if let Some(init) = &var_decl.initializer {
             match init.as_ref() {
-                Expression::Literal(l) => {
-                    self.visit_literal(l);
-                }
-                Expression::Identifier(i) => {
-                    self.visit_identifier(i);
-                }
-                Expression::Binary(b) => {
-                    self.visit_binary(b);
-                }
-                Expression::Unary(u) => {
-                    self.visit_unary(u);
-                }
-                Expression::Assignment(a) => {
-                    self.visit_assignment(a);
-                }
-                Expression::Call(c) => {
-                    self.visit_call(c);
-                }
-                Expression::StructAccess(sa) => {
-                    self.visit_struct_access(sa);
-                }
-                Expression::Grouped(g) => {
-                    self.visit_grouped(g);
+                Expression::Literal(l) => self.visit_literal(l),
+                Expression::Identifier(i) => self.visit_identifier(i),
+                Expression::Binary(b) => self.visit_binary(b),
+                Expression::Unary(u) => self.visit_unary(u),
+                Expression::Assignment(a) => self.visit_assignment(a),
+                Expression::Call(c) => self.visit_call(c),
+                Expression::StructAccess(sa) => self.visit_struct_access(sa),
+                Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(aa) => {
+                    self.visit_array_access(aa);
                 }
             }
         }
@@ -119,311 +110,219 @@ impl Visitor<()> for DefaultVisitor {
     fn visit_block(&mut self, block: &BlockStmt) {
         for stmt in &block.statements {
             match stmt {
-                Statement::VariableDecl(v) => {
-                    self.visit_var_decl(v);
-                }
-                Statement::Expression(e) => {
-                    self.visit_expr_stmt(e);
-                }
-                Statement::If(i) => {
-                    self.visit_if_stmt(i);
-                }
-                Statement::While(w) => {
-                    self.visit_while_stmt(w);
-                }
-                Statement::For(f) => {
-                    self.visit_for_stmt(f);
-                }
-                Statement::Return(r) => {
-                    self.visit_return_stmt(r);
-                }
-                Statement::Block(b) => {
-                    self.visit_block(b);
-                }
-                Statement::Empty(e) => {
-                    self.visit_empty_stmt(e);
-                }
+                Statement::VariableDecl(v) => self.visit_var_decl(v),
+                Statement::Expression(e) => self.visit_expr_stmt(e),
+                Statement::If(i) => self.visit_if_stmt(i),
+                Statement::While(w) => self.visit_while_stmt(w),
+                Statement::For(f) => self.visit_for_stmt(f),
+                Statement::Return(r) => self.visit_return_stmt(r),
+                Statement::Block(b) => self.visit_block(b),
+                Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(b) => self.visit_break_stmt(b),
+                Statement::Continue(c) => self.visit_continue_stmt(c),
+                Statement::Switch(s) => self.visit_switch_stmt(s),
             }
         }
     }
 
     fn visit_if_stmt(&mut self, if_stmt: &IfStmt) {
         match if_stmt.condition.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
         match if_stmt.then_branch.as_ref() {
-            Statement::VariableDecl(v) => {
-                self.visit_var_decl(v);
-            }
-            Statement::Expression(e) => {
-                self.visit_expr_stmt(e);
-            }
-            Statement::If(i) => {
-                self.visit_if_stmt(i);
-            }
-            Statement::While(w) => {
-                self.visit_while_stmt(w);
-            }
-            Statement::For(f) => {
-                self.visit_for_stmt(f);
-            }
-            Statement::Return(r) => {
-                self.visit_return_stmt(r);
-            }
-            Statement::Block(b) => {
-                self.visit_block(b);
-            }
-            Statement::Empty(e) => {
-                self.visit_empty_stmt(e);
-            }
+            Statement::VariableDecl(v) => self.visit_var_decl(v),
+            Statement::Expression(e) => self.visit_expr_stmt(e),
+            Statement::If(i) => self.visit_if_stmt(i),
+            Statement::While(w) => self.visit_while_stmt(w),
+            Statement::For(f) => self.visit_for_stmt(f),
+            Statement::Return(r) => self.visit_return_stmt(r),
+            Statement::Block(b) => self.visit_block(b),
+            Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(b) => self.visit_break_stmt(b),
+            Statement::Continue(c) => self.visit_continue_stmt(c),
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         }
         if let Some(else_branch) = &if_stmt.else_branch {
             match else_branch.as_ref() {
-                Statement::VariableDecl(v) => {
-                    self.visit_var_decl(v);
-                }
-                Statement::Expression(e) => {
-                    self.visit_expr_stmt(e);
-                }
-                Statement::If(i) => {
-                    self.visit_if_stmt(i);
-                }
-                Statement::While(w) => {
-                    self.visit_while_stmt(w);
-                }
-                Statement::For(f) => {
-                    self.visit_for_stmt(f);
-                }
-                Statement::Return(r) => {
-                    self.visit_return_stmt(r);
-                }
-                Statement::Block(b) => {
-                    self.visit_block(b);
-                }
-                Statement::Empty(e) => {
-                    self.visit_empty_stmt(e);
-                }
+                Statement::VariableDecl(v) => self.visit_var_decl(v),
+                Statement::Expression(e) => self.visit_expr_stmt(e),
+                Statement::If(i) => self.visit_if_stmt(i),
+                Statement::While(w) => self.visit_while_stmt(w),
+                Statement::For(f) => self.visit_for_stmt(f),
+                Statement::Return(r) => self.visit_return_stmt(r),
+                Statement::Block(b) => self.visit_block(b),
+                Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(b) => self.visit_break_stmt(b),
+                Statement::Continue(c) => self.visit_continue_stmt(c),
+                Statement::Switch(s) => self.visit_switch_stmt(s),
             }
+        }
+    }
+
+    fn visit_switch_stmt(&mut self, switch_stmt: &SwitchStmt) {
+        match switch_stmt.expression.as_ref() {
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
+            }
+        }
+        for case in &switch_stmt.cases {
+            self.visit_case_stmt(case);
+        }
+        if let Some(default) = &switch_stmt.default {
+            match default.as_ref() {
+                Statement::VariableDecl(v) => self.visit_var_decl(v),
+                Statement::Expression(e) => self.visit_expr_stmt(e),
+                Statement::If(i) => self.visit_if_stmt(i),
+                Statement::While(w) => self.visit_while_stmt(w),
+                Statement::For(f) => self.visit_for_stmt(f),
+                Statement::Return(r) => self.visit_return_stmt(r),
+                Statement::Block(b) => self.visit_block(b),
+                Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(b) => self.visit_break_stmt(b),
+                Statement::Continue(c) => self.visit_continue_stmt(c),
+                Statement::Switch(s) => self.visit_switch_stmt(s),
+            }
+        }
+    }
+
+    fn visit_case_stmt(&mut self, case_stmt: &CaseStmt) {
+        self.visit_literal(&case_stmt.value);
+        match case_stmt.body.as_ref() {
+            Statement::VariableDecl(v) => self.visit_var_decl(v),
+            Statement::Expression(e) => self.visit_expr_stmt(e),
+            Statement::If(i) => self.visit_if_stmt(i),
+            Statement::While(w) => self.visit_while_stmt(w),
+            Statement::For(f) => self.visit_for_stmt(f),
+            Statement::Return(r) => self.visit_return_stmt(r),
+            Statement::Block(b) => self.visit_block(b),
+            Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(b) => self.visit_break_stmt(b),
+            Statement::Continue(c) => self.visit_continue_stmt(c),
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         }
     }
 
     fn visit_while_stmt(&mut self, while_stmt: &WhileStmt) {
         match while_stmt.condition.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
         match while_stmt.body.as_ref() {
-            Statement::VariableDecl(v) => {
-                self.visit_var_decl(v);
-            }
-            Statement::Expression(e) => {
-                self.visit_expr_stmt(e);
-            }
-            Statement::If(i) => {
-                self.visit_if_stmt(i);
-            }
-            Statement::While(w) => {
-                self.visit_while_stmt(w);
-            }
-            Statement::For(f) => {
-                self.visit_for_stmt(f);
-            }
-            Statement::Return(r) => {
-                self.visit_return_stmt(r);
-            }
-            Statement::Block(b) => {
-                self.visit_block(b);
-            }
-            Statement::Empty(e) => {
-                self.visit_empty_stmt(e);
-            }
+            Statement::VariableDecl(v) => self.visit_var_decl(v),
+            Statement::Expression(e) => self.visit_expr_stmt(e),
+            Statement::If(i) => self.visit_if_stmt(i),
+            Statement::While(w) => self.visit_while_stmt(w),
+            Statement::For(f) => self.visit_for_stmt(f),
+            Statement::Return(r) => self.visit_return_stmt(r),
+            Statement::Block(b) => self.visit_block(b),
+            Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(b) => self.visit_break_stmt(b),
+            Statement::Continue(c) => self.visit_continue_stmt(c),
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         }
     }
 
     fn visit_for_stmt(&mut self, for_stmt: &ForStmt) {
         if let Some(init) = &for_stmt.init {
             match init.as_ref() {
-                Statement::VariableDecl(v) => {
-                    self.visit_var_decl(v);
-                }
-                Statement::Expression(e) => {
-                    self.visit_expr_stmt(e);
-                }
-                Statement::If(i) => {
-                    self.visit_if_stmt(i);
-                }
-                Statement::While(w) => {
-                    self.visit_while_stmt(w);
-                }
-                Statement::For(f) => {
-                    self.visit_for_stmt(f);
-                }
-                Statement::Return(r) => {
-                    self.visit_return_stmt(r);
-                }
-                Statement::Block(b) => {
-                    self.visit_block(b);
-                }
-                Statement::Empty(e) => {
-                    self.visit_empty_stmt(e);
-                }
+                Statement::VariableDecl(v) => self.visit_var_decl(v),
+                Statement::Expression(e) => self.visit_expr_stmt(e),
+                Statement::If(i) => self.visit_if_stmt(i),
+                Statement::While(w) => self.visit_while_stmt(w),
+                Statement::For(f) => self.visit_for_stmt(f),
+                Statement::Return(r) => self.visit_return_stmt(r),
+                Statement::Block(b) => self.visit_block(b),
+                Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(b) => self.visit_break_stmt(b),
+                Statement::Continue(c) => self.visit_continue_stmt(c),
+                Statement::Switch(s) => self.visit_switch_stmt(s),
             }
         }
         if let Some(condition) = &for_stmt.condition {
             match condition.as_ref() {
-                Expression::Literal(l) => {
-                    self.visit_literal(l);
-                }
-                Expression::Identifier(i) => {
-                    self.visit_identifier(i);
-                }
-                Expression::Binary(b) => {
-                    self.visit_binary(b);
-                }
-                Expression::Unary(u) => {
-                    self.visit_unary(u);
-                }
-                Expression::Assignment(a) => {
-                    self.visit_assignment(a);
-                }
-                Expression::Call(c) => {
-                    self.visit_call(c);
-                }
-                Expression::StructAccess(sa) => {
-                    self.visit_struct_access(sa);
-                }
-                Expression::Grouped(g) => {
-                    self.visit_grouped(g);
+                Expression::Literal(l) => self.visit_literal(l),
+                Expression::Identifier(i) => self.visit_identifier(i),
+                Expression::Binary(b) => self.visit_binary(b),
+                Expression::Unary(u) => self.visit_unary(u),
+                Expression::Assignment(a) => self.visit_assignment(a),
+                Expression::Call(c) => self.visit_call(c),
+                Expression::StructAccess(sa) => self.visit_struct_access(sa),
+                Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(aa) => {
+                    self.visit_array_access(aa);
                 }
             }
         }
         if let Some(update) = &for_stmt.update {
             match update.as_ref() {
-                Expression::Literal(l) => {
-                    self.visit_literal(l);
-                }
-                Expression::Identifier(i) => {
-                    self.visit_identifier(i);
-                }
-                Expression::Binary(b) => {
-                    self.visit_binary(b);
-                }
-                Expression::Unary(u) => {
-                    self.visit_unary(u);
-                }
-                Expression::Assignment(a) => {
-                    self.visit_assignment(a);
-                }
-                Expression::Call(c) => {
-                    self.visit_call(c);
-                }
-                Expression::StructAccess(sa) => {
-                    self.visit_struct_access(sa);
-                }
-                Expression::Grouped(g) => {
-                    self.visit_grouped(g);
+                Expression::Literal(l) => self.visit_literal(l),
+                Expression::Identifier(i) => self.visit_identifier(i),
+                Expression::Binary(b) => self.visit_binary(b),
+                Expression::Unary(u) => self.visit_unary(u),
+                Expression::Assignment(a) => self.visit_assignment(a),
+                Expression::Call(c) => self.visit_call(c),
+                Expression::StructAccess(sa) => self.visit_struct_access(sa),
+                Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(aa) => {
+                    self.visit_array_access(aa);
                 }
             }
         }
         match for_stmt.body.as_ref() {
-            Statement::VariableDecl(v) => {
-                self.visit_var_decl(v);
-            }
-            Statement::Expression(e) => {
-                self.visit_expr_stmt(e);
-            }
-            Statement::If(i) => {
-                self.visit_if_stmt(i);
-            }
-            Statement::While(w) => {
-                self.visit_while_stmt(w);
-            }
-            Statement::For(f) => {
-                self.visit_for_stmt(f);
-            }
-            Statement::Return(r) => {
-                self.visit_return_stmt(r);
-            }
-            Statement::Block(b) => {
-                self.visit_block(b);
-            }
-            Statement::Empty(e) => {
-                self.visit_empty_stmt(e);
-            }
+            Statement::VariableDecl(v) => self.visit_var_decl(v),
+            Statement::Expression(e) => self.visit_expr_stmt(e),
+            Statement::If(i) => self.visit_if_stmt(i),
+            Statement::While(w) => self.visit_while_stmt(w),
+            Statement::For(f) => self.visit_for_stmt(f),
+            Statement::Return(r) => self.visit_return_stmt(r),
+            Statement::Block(b) => self.visit_block(b),
+            Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(b) => self.visit_break_stmt(b),
+            Statement::Continue(c) => self.visit_continue_stmt(c),
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         }
     }
 
     fn visit_return_stmt(&mut self, return_stmt: &ReturnStmt) {
         if let Some(value) = &return_stmt.value {
             match value.as_ref() {
-                Expression::Literal(l) => {
-                    self.visit_literal(l);
-                }
-                Expression::Identifier(i) => {
-                    self.visit_identifier(i);
-                }
-                Expression::Binary(b) => {
-                    self.visit_binary(b);
-                }
-                Expression::Unary(u) => {
-                    self.visit_unary(u);
-                }
-                Expression::Assignment(a) => {
-                    self.visit_assignment(a);
-                }
-                Expression::Call(c) => {
-                    self.visit_call(c);
-                }
-                Expression::StructAccess(sa) => {
-                    self.visit_struct_access(sa);
-                }
-                Expression::Grouped(g) => {
-                    self.visit_grouped(g);
+                Expression::Literal(l) => self.visit_literal(l),
+                Expression::Identifier(i) => self.visit_identifier(i),
+                Expression::Binary(b) => self.visit_binary(b),
+                Expression::Unary(u) => self.visit_unary(u),
+                Expression::Assignment(a) => self.visit_assignment(a),
+                Expression::Call(c) => self.visit_call(c),
+                Expression::StructAccess(sa) => self.visit_struct_access(sa),
+                Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(aa) => {
+                    self.visit_array_access(aa);
                 }
             }
         }
@@ -431,230 +330,127 @@ impl Visitor<()> for DefaultVisitor {
 
     fn visit_expr_stmt(&mut self, expr_stmt: &ExprStmt) {
         match expr_stmt.expr.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
     }
 
     fn visit_empty_stmt(&mut self, _empty_stmt: &EmptyStmt) {}
+    fn visit_break_stmt(&mut self, _break_stmt: &BreakStmt) {}
+    fn visit_continue_stmt(&mut self, _continue_stmt: &ContinueStmt) {}
 
     fn visit_literal(&mut self, _literal: &Literal) {}
-
     fn visit_identifier(&mut self, _identifier: &IdentifierExpr) {}
 
     fn visit_binary(&mut self, binary: &BinaryExpr) {
         match binary.left.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
         match binary.right.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
     }
 
     fn visit_unary(&mut self, unary: &UnaryExpr) {
         match unary.operand.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
     }
 
     fn visit_assignment(&mut self, assignment: &AssignmentExpr) {
         match assignment.target.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
         match assignment.value.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
     }
 
     fn visit_call(&mut self, call: &CallExpr) {
         match call.callee.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
         for arg in &call.arguments {
             match arg {
-                Expression::Literal(l) => {
-                    self.visit_literal(l);
-                }
-                Expression::Identifier(i) => {
-                    self.visit_identifier(i);
-                }
-                Expression::Binary(b) => {
-                    self.visit_binary(b);
-                }
-                Expression::Unary(u) => {
-                    self.visit_unary(u);
-                }
-                Expression::Assignment(a) => {
-                    self.visit_assignment(a);
-                }
-                Expression::Call(c) => {
-                    self.visit_call(c);
-                }
-                Expression::StructAccess(sa) => {
-                    self.visit_struct_access(sa);
-                }
-                Expression::Grouped(g) => {
-                    self.visit_grouped(g);
+                Expression::Literal(l) => self.visit_literal(l),
+                Expression::Identifier(i) => self.visit_identifier(i),
+                Expression::Binary(b) => self.visit_binary(b),
+                Expression::Unary(u) => self.visit_unary(u),
+                Expression::Assignment(a) => self.visit_assignment(a),
+                Expression::Call(c) => self.visit_call(c),
+                Expression::StructAccess(sa) => self.visit_struct_access(sa),
+                Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(aa) => {
+                    self.visit_array_access(aa);
                 }
             }
         }
@@ -662,59 +458,58 @@ impl Visitor<()> for DefaultVisitor {
 
     fn visit_struct_access(&mut self, access: &StructAccessExpr) {
         match access.object.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
-            }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
         }
     }
 
     fn visit_grouped(&mut self, grouped: &GroupedExpr) {
         match grouped.expr.as_ref() {
-            Expression::Literal(l) => {
-                self.visit_literal(l);
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(aa) => {
+                self.visit_array_access(aa);
             }
-            Expression::Identifier(i) => {
-                self.visit_identifier(i);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
-            }
+        }
+    }
+
+    fn visit_array_access(&mut self, aa: &ArrayAccessExpr) {
+        match aa.array.as_ref() {
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::ArrayAccess(a) => self.visit_array_access(a),
+            Expression::Grouped(g) => self.visit_grouped(g),
+        }
+        match aa.index.as_ref() {
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::ArrayAccess(a) => self.visit_array_access(a),
+            Expression::Grouped(g) => self.visit_grouped(g),
         }
     }
 }

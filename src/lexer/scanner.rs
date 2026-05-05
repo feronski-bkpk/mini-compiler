@@ -546,6 +546,11 @@ impl<'a> Scanner<'a> {
             "struct" => self.make_token(TokenKind::KwStruct),
             "fn" => self.make_token(TokenKind::KwFn),
             "string" => self.make_token(TokenKind::KwString),
+            "break" => self.make_token(TokenKind::KwBreak),
+            "continue" => self.make_token(TokenKind::KwContinue),
+            "switch" => self.make_token(TokenKind::KwSwitch),
+            "case" => self.make_token(TokenKind::KwCase),
+            "default" => self.make_token(TokenKind::KwDefault),
             _ => self.make_token(TokenKind::Identifier(self.current_lexeme.clone())),
         };
 

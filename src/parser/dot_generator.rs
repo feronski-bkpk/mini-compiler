@@ -95,7 +95,6 @@ impl DotGenerator {
     /// Экранирует специальные символы в метках для DOT формата
     fn escape_label(&self, text: &str) -> String {
         let mut result = String::with_capacity(text.len() * 2);
-
         for c in text.chars() {
             match c {
                 '"' => result.push_str("\\\""),
@@ -113,7 +112,6 @@ impl DotGenerator {
                 _ => result.push(c),
             }
         }
-
         result
     }
 
@@ -121,7 +119,6 @@ impl DotGenerator {
     pub fn generate(&mut self, program: &Program) -> String {
         self.output.clear();
         self.node_counter = 0;
-
         self.output.push_str("digraph AST {\n");
         self.output
             .push_str("    graph [rankdir=TB, splines=ortho];\n");
@@ -129,9 +126,7 @@ impl DotGenerator {
             .push_str("    node [fontname=\"Courier New\"];\n");
         self.output
             .push_str("    edge [fontname=\"Courier New\"];\n\n");
-
         let _root_id = self.visit_program(program);
-
         self.output.push_str("}\n");
         self.output.clone()
     }
@@ -149,7 +144,6 @@ impl Visitor<usize> for DotGenerator {
         let label = format!("Program [line {}]", program.node.line);
         let node_str = self.format_node(node_id, &label, &self.colors.program);
         self.output.push_str(&node_str);
-
         for decl in &program.declarations {
             let child_id = match decl {
                 Declaration::Function(f) => self.visit_function_decl(f),
@@ -159,7 +153,6 @@ impl Visitor<usize> for DotGenerator {
             self.output
                 .push_str(&self.format_edge(node_id, child_id, None));
         }
-
         node_id
     }
 
@@ -171,7 +164,6 @@ impl Visitor<usize> for DotGenerator {
         );
         let node_str = self.format_node(node_id, &label, &self.colors.function);
         self.output.push_str(&node_str);
-
         if !func.parameters.is_empty() {
             let params_id = self.next_node_id();
             let params_label = format!("Parameters ({})", func.parameters.len());
@@ -180,18 +172,15 @@ impl Visitor<usize> for DotGenerator {
             self.output.push_str(&params_node_str);
             self.output
                 .push_str(&self.format_edge(node_id, params_id, Some("params")));
-
             for param in &func.parameters {
                 let param_id = self.visit_param(param);
                 self.output
                     .push_str(&self.format_edge(params_id, param_id, None));
             }
         }
-
         let body_id = self.visit_block(&func.body);
         self.output
             .push_str(&self.format_edge(node_id, body_id, Some("body")));
-
         node_id
     }
 
@@ -203,7 +192,6 @@ impl Visitor<usize> for DotGenerator {
         );
         let node_str = self.format_node(node_id, &label, &self.colors.struct_node);
         self.output.push_str(&node_str);
-
         if !struct_decl.fields.is_empty() {
             let fields_id = self.next_node_id();
             let fields_label = format!("Fields ({})", struct_decl.fields.len());
@@ -212,14 +200,12 @@ impl Visitor<usize> for DotGenerator {
             self.output.push_str(&fields_node_str);
             self.output
                 .push_str(&self.format_edge(node_id, fields_id, Some("fields")));
-
             for field in &struct_decl.fields {
                 let field_id = self.visit_var_decl(field);
                 self.output
                     .push_str(&self.format_edge(fields_id, field_id, None));
             }
         }
-
         node_id
     }
 
@@ -237,7 +223,6 @@ impl Visitor<usize> for DotGenerator {
         );
         let node_str = self.format_node(node_id, &label, &self.colors.variable);
         self.output.push_str(&node_str);
-
         if let Some(init) = &var_decl.initializer {
             let init_id = match init.as_ref() {
                 Expression::Literal(l) => self.visit_literal(l),
@@ -248,11 +233,11 @@ impl Visitor<usize> for DotGenerator {
                 Expression::Call(c) => self.visit_call(c),
                 Expression::StructAccess(sa) => self.visit_struct_access(sa),
                 Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(_) => self.next_node_id(),
             };
             self.output
                 .push_str(&self.format_edge(node_id, init_id, Some("init")));
         }
-
         node_id
     }
 
@@ -273,7 +258,6 @@ impl Visitor<usize> for DotGenerator {
         );
         let node_str = self.format_node(node_id, &label, &self.colors.statement);
         self.output.push_str(&node_str);
-
         for stmt in &block.statements {
             let stmt_id = match stmt {
                 Statement::VariableDecl(v) => self.visit_var_decl(v),
@@ -284,11 +268,23 @@ impl Visitor<usize> for DotGenerator {
                 Statement::Return(r) => self.visit_return_stmt(r),
                 Statement::Block(b) => self.visit_block(b),
                 Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(_) => {
+                    let id = self.next_node_id();
+                    self.output
+                        .push_str(&self.format_node(id, "Break", &self.colors.statement));
+                    id
+                }
+                Statement::Continue(_) => {
+                    let id = self.next_node_id();
+                    self.output
+                        .push_str(&self.format_node(id, "Continue", &self.colors.statement));
+                    id
+                }
+                Statement::Switch(s) => self.visit_switch_stmt(s),
             };
             self.output
                 .push_str(&self.format_edge(node_id, stmt_id, None));
         }
-
         node_id
     }
 
@@ -297,7 +293,6 @@ impl Visitor<usize> for DotGenerator {
         let label = format!("IfStmt [line {}]", if_stmt.node.line);
         let node_str = self.format_node(node_id, &label, &self.colors.statement);
         self.output.push_str(&node_str);
-
         let cond_id = match if_stmt.condition.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -307,10 +302,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, cond_id, Some("cond")));
-
         let then_id = match if_stmt.then_branch.as_ref() {
             Statement::VariableDecl(v) => self.visit_var_decl(v),
             Statement::Expression(e) => self.visit_expr_stmt(e),
@@ -320,10 +315,22 @@ impl Visitor<usize> for DotGenerator {
             Statement::Return(r) => self.visit_return_stmt(r),
             Statement::Block(b) => self.visit_block(b),
             Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(_) => {
+                let id = self.next_node_id();
+                self.output
+                    .push_str(&self.format_node(id, "Break", &self.colors.statement));
+                id
+            }
+            Statement::Continue(_) => {
+                let id = self.next_node_id();
+                self.output
+                    .push_str(&self.format_node(id, "Continue", &self.colors.statement));
+                id
+            }
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         };
         self.output
             .push_str(&self.format_edge(node_id, then_id, Some("then")));
-
         if let Some(else_branch) = &if_stmt.else_branch {
             let else_id = match else_branch.as_ref() {
                 Statement::VariableDecl(v) => self.visit_var_decl(v),
@@ -334,11 +341,23 @@ impl Visitor<usize> for DotGenerator {
                 Statement::Return(r) => self.visit_return_stmt(r),
                 Statement::Block(b) => self.visit_block(b),
                 Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(_) => {
+                    let id = self.next_node_id();
+                    self.output
+                        .push_str(&self.format_node(id, "Break", &self.colors.statement));
+                    id
+                }
+                Statement::Continue(_) => {
+                    let id = self.next_node_id();
+                    self.output
+                        .push_str(&self.format_node(id, "Continue", &self.colors.statement));
+                    id
+                }
+                Statement::Switch(s) => self.visit_switch_stmt(s),
             };
             self.output
                 .push_str(&self.format_edge(node_id, else_id, Some("else")));
         }
-
         node_id
     }
 
@@ -347,7 +366,6 @@ impl Visitor<usize> for DotGenerator {
         let label = format!("WhileStmt [line {}]", while_stmt.node.line);
         let node_str = self.format_node(node_id, &label, &self.colors.statement);
         self.output.push_str(&node_str);
-
         let cond_id = match while_stmt.condition.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -357,10 +375,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, cond_id, Some("cond")));
-
         let body_id = match while_stmt.body.as_ref() {
             Statement::VariableDecl(v) => self.visit_var_decl(v),
             Statement::Expression(e) => self.visit_expr_stmt(e),
@@ -370,10 +388,22 @@ impl Visitor<usize> for DotGenerator {
             Statement::Return(r) => self.visit_return_stmt(r),
             Statement::Block(b) => self.visit_block(b),
             Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(_) => {
+                let id = self.next_node_id();
+                self.output
+                    .push_str(&self.format_node(id, "Break", &self.colors.statement));
+                id
+            }
+            Statement::Continue(_) => {
+                let id = self.next_node_id();
+                self.output
+                    .push_str(&self.format_node(id, "Continue", &self.colors.statement));
+                id
+            }
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         };
         self.output
             .push_str(&self.format_edge(node_id, body_id, Some("body")));
-
         node_id
     }
 
@@ -382,7 +412,6 @@ impl Visitor<usize> for DotGenerator {
         let label = format!("ForStmt [line {}]", for_stmt.node.line);
         let node_str = self.format_node(node_id, &label, &self.colors.statement);
         self.output.push_str(&node_str);
-
         if let Some(init) = &for_stmt.init {
             let init_id = match init.as_ref() {
                 Statement::VariableDecl(v) => self.visit_var_decl(v),
@@ -393,11 +422,23 @@ impl Visitor<usize> for DotGenerator {
                 Statement::Return(r) => self.visit_return_stmt(r),
                 Statement::Block(b) => self.visit_block(b),
                 Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(_) => {
+                    let id = self.next_node_id();
+                    self.output
+                        .push_str(&self.format_node(id, "Break", &self.colors.statement));
+                    id
+                }
+                Statement::Continue(_) => {
+                    let id = self.next_node_id();
+                    self.output
+                        .push_str(&self.format_node(id, "Continue", &self.colors.statement));
+                    id
+                }
+                Statement::Switch(s) => self.visit_switch_stmt(s),
             };
             self.output
                 .push_str(&self.format_edge(node_id, init_id, Some("init")));
         }
-
         if let Some(cond) = &for_stmt.condition {
             let cond_id = match cond.as_ref() {
                 Expression::Literal(l) => self.visit_literal(l),
@@ -408,11 +449,11 @@ impl Visitor<usize> for DotGenerator {
                 Expression::Call(c) => self.visit_call(c),
                 Expression::StructAccess(sa) => self.visit_struct_access(sa),
                 Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(_) => self.next_node_id(),
             };
             self.output
                 .push_str(&self.format_edge(node_id, cond_id, Some("cond")));
         }
-
         if let Some(update) = &for_stmt.update {
             let update_id = match update.as_ref() {
                 Expression::Literal(l) => self.visit_literal(l),
@@ -423,11 +464,11 @@ impl Visitor<usize> for DotGenerator {
                 Expression::Call(c) => self.visit_call(c),
                 Expression::StructAccess(sa) => self.visit_struct_access(sa),
                 Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(_) => self.next_node_id(),
             };
             self.output
                 .push_str(&self.format_edge(node_id, update_id, Some("update")));
         }
-
         let body_id = match for_stmt.body.as_ref() {
             Statement::VariableDecl(v) => self.visit_var_decl(v),
             Statement::Expression(e) => self.visit_expr_stmt(e),
@@ -437,23 +478,34 @@ impl Visitor<usize> for DotGenerator {
             Statement::Return(r) => self.visit_return_stmt(r),
             Statement::Block(b) => self.visit_block(b),
             Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(_) => {
+                let id = self.next_node_id();
+                self.output
+                    .push_str(&self.format_node(id, "Break", &self.colors.statement));
+                id
+            }
+            Statement::Continue(_) => {
+                let id = self.next_node_id();
+                self.output
+                    .push_str(&self.format_node(id, "Continue", &self.colors.statement));
+                id
+            }
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         };
         self.output
             .push_str(&self.format_edge(node_id, body_id, Some("body")));
-
         node_id
     }
 
     fn visit_return_stmt(&mut self, return_stmt: &ReturnStmt) -> usize {
         let node_id = self.next_node_id();
         let label = if return_stmt.value.is_some() {
-            "ReturnStmt with value".to_string()
+            "ReturnStmt with value"
         } else {
-            "ReturnStmt void".to_string()
+            "ReturnStmt void"
         };
-        let node_str = self.format_node(node_id, &label, &self.colors.statement);
+        let node_str = self.format_node(node_id, label, &self.colors.statement);
         self.output.push_str(&node_str);
-
         if let Some(value) = &return_stmt.value {
             let value_id = match value.as_ref() {
                 Expression::Literal(l) => self.visit_literal(l),
@@ -464,11 +516,11 @@ impl Visitor<usize> for DotGenerator {
                 Expression::Call(c) => self.visit_call(c),
                 Expression::StructAccess(sa) => self.visit_struct_access(sa),
                 Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(_) => self.next_node_id(),
             };
             self.output
                 .push_str(&self.format_edge(node_id, value_id, Some("value")));
         }
-
         node_id
     }
 
@@ -476,7 +528,6 @@ impl Visitor<usize> for DotGenerator {
         let node_id = self.next_node_id();
         let node_str = self.format_node(node_id, "ExprStmt", &self.colors.statement);
         self.output.push_str(&node_str);
-
         let expr_id = match expr_stmt.expr.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -486,10 +537,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, expr_id, None));
-
         node_id
     }
 
@@ -501,18 +552,100 @@ impl Visitor<usize> for DotGenerator {
         node_id
     }
 
+    fn visit_switch_stmt(&mut self, switch_stmt: &SwitchStmt) -> usize {
+        let node_id = self.next_node_id();
+        let label = format!("SwitchStmt [line {}]", switch_stmt.node.line);
+        let node_str = self.format_node(node_id, &label, &self.colors.statement);
+        self.output.push_str(&node_str);
+        let expr_id = match switch_stmt.expression.as_ref() {
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
+        };
+        self.output
+            .push_str(&self.format_edge(node_id, expr_id, Some("expr")));
+        for case in &switch_stmt.cases {
+            let case_id = self.visit_case_stmt(case);
+            self.output
+                .push_str(&self.format_edge(node_id, case_id, Some("case")));
+        }
+        if let Some(default) = &switch_stmt.default {
+            let default_id = match default.as_ref() {
+                Statement::VariableDecl(v) => self.visit_var_decl(v),
+                Statement::Expression(e) => self.visit_expr_stmt(e),
+                Statement::If(i) => self.visit_if_stmt(i),
+                Statement::While(w) => self.visit_while_stmt(w),
+                Statement::For(f) => self.visit_for_stmt(f),
+                Statement::Return(r) => self.visit_return_stmt(r),
+                Statement::Block(b) => self.visit_block(b),
+                Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(_) => {
+                    let id = self.next_node_id();
+                    self.output
+                        .push_str(&self.format_node(id, "Break", &self.colors.statement));
+                    id
+                }
+                Statement::Continue(_) => {
+                    let id = self.next_node_id();
+                    self.output
+                        .push_str(&self.format_node(id, "Continue", &self.colors.statement));
+                    id
+                }
+                Statement::Switch(s) => self.visit_switch_stmt(s),
+            };
+            self.output
+                .push_str(&self.format_edge(node_id, default_id, Some("default")));
+        }
+        node_id
+    }
+
+    fn visit_case_stmt(&mut self, case_stmt: &CaseStmt) -> usize {
+        let node_id = self.next_node_id();
+        let label = format!("Case {}", case_stmt.value.value);
+        let node_str = self.format_node(node_id, &label, &self.colors.statement);
+        self.output.push_str(&node_str);
+        let body_id = match case_stmt.body.as_ref() {
+            Statement::VariableDecl(v) => self.visit_var_decl(v),
+            Statement::Expression(e) => self.visit_expr_stmt(e),
+            Statement::If(i) => self.visit_if_stmt(i),
+            Statement::While(w) => self.visit_while_stmt(w),
+            Statement::For(f) => self.visit_for_stmt(f),
+            Statement::Return(r) => self.visit_return_stmt(r),
+            Statement::Block(b) => self.visit_block(b),
+            Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(_) => {
+                let id = self.next_node_id();
+                self.output
+                    .push_str(&self.format_node(id, "Break", &self.colors.statement));
+                id
+            }
+            Statement::Continue(_) => {
+                let id = self.next_node_id();
+                self.output
+                    .push_str(&self.format_node(id, "Continue", &self.colors.statement));
+                id
+            }
+            Statement::Switch(s) => self.visit_switch_stmt(s),
+        };
+        self.output
+            .push_str(&self.format_edge(node_id, body_id, Some("body")));
+        node_id
+    }
+
     fn visit_literal(&mut self, literal: &Literal) -> usize {
         let node_id = self.next_node_id();
-
         let value_str = match &literal.value {
-            LiteralValue::String(s) => {
-                format!("\\\"{}\\\"", self.escape_label(s))
-            }
+            LiteralValue::String(s) => format!("\\\"{}\\\"", self.escape_label(s)),
             LiteralValue::Int(i) => format!("{}", i),
             LiteralValue::Float(f) => format!("{}", f),
             LiteralValue::Bool(b) => format!("{}", b),
         };
-
         let label = format!("Literal\\n{}", value_str);
         let node_str = self.format_node(node_id, &label, &self.colors.literal);
         self.output.push_str(&node_str);
@@ -532,7 +665,6 @@ impl Visitor<usize> for DotGenerator {
         let label = format!("BinaryOp\\n{}", binary.operator);
         let node_str = self.format_node(node_id, &label, &self.colors.operator);
         self.output.push_str(&node_str);
-
         let left_id = match binary.left.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -542,10 +674,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, left_id, Some("left")));
-
         let right_id = match binary.right.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -555,10 +687,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, right_id, Some("right")));
-
         node_id
     }
 
@@ -567,7 +699,6 @@ impl Visitor<usize> for DotGenerator {
         let label = format!("UnaryOp\\n{}", unary.operator);
         let node_str = self.format_node(node_id, &label, &self.colors.operator);
         self.output.push_str(&node_str);
-
         let operand_id = match unary.operand.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -577,10 +708,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, operand_id, Some("operand")));
-
         node_id
     }
 
@@ -589,7 +720,6 @@ impl Visitor<usize> for DotGenerator {
         let label = format!("Assignment\\n{}", assignment.operator);
         let node_str = self.format_node(node_id, &label, &self.colors.operator);
         self.output.push_str(&node_str);
-
         let target_id = match assignment.target.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -599,10 +729,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, target_id, Some("target")));
-
         let value_id = match assignment.value.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -612,10 +742,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, value_id, Some("value")));
-
         node_id
     }
 
@@ -624,7 +754,6 @@ impl Visitor<usize> for DotGenerator {
         let label = format!("Call\\n({} args)", call.arguments.len());
         let node_str = self.format_node(node_id, &label, &self.colors.call);
         self.output.push_str(&node_str);
-
         let callee_id = match call.callee.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -634,10 +763,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, callee_id, Some("callee")));
-
         if !call.arguments.is_empty() {
             let args_id = self.next_node_id();
             let args_label = format!("Arguments ({})", call.arguments.len());
@@ -645,7 +774,6 @@ impl Visitor<usize> for DotGenerator {
             self.output.push_str(&args_node_str);
             self.output
                 .push_str(&self.format_edge(node_id, args_id, Some("args")));
-
             for arg in &call.arguments {
                 let arg_id = match arg {
                     Expression::Literal(l) => self.visit_literal(l),
@@ -656,12 +784,12 @@ impl Visitor<usize> for DotGenerator {
                     Expression::Call(c) => self.visit_call(c),
                     Expression::StructAccess(sa) => self.visit_struct_access(sa),
                     Expression::Grouped(g) => self.visit_grouped(g),
+                    Expression::ArrayAccess(_) => self.next_node_id(),
                 };
                 self.output
                     .push_str(&self.format_edge(args_id, arg_id, None));
             }
         }
-
         node_id
     }
 
@@ -670,7 +798,6 @@ impl Visitor<usize> for DotGenerator {
         let label = format!("StructAccess\\n.{}", access.field);
         let node_str = self.format_node(node_id, &label, &self.colors.expression);
         self.output.push_str(&node_str);
-
         let object_id = match access.object.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -680,10 +807,10 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, object_id, Some("object")));
-
         node_id
     }
 
@@ -691,7 +818,6 @@ impl Visitor<usize> for DotGenerator {
         let node_id = self.next_node_id();
         let node_str = self.format_node(node_id, "Grouped", &self.colors.expression);
         self.output.push_str(&node_str);
-
         let expr_id = match grouped.expr.as_ref() {
             Expression::Literal(l) => self.visit_literal(l),
             Expression::Identifier(i) => self.visit_identifier(i),
@@ -701,10 +827,23 @@ impl Visitor<usize> for DotGenerator {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => self.next_node_id(),
         };
         self.output
             .push_str(&self.format_edge(node_id, expr_id, Some("expr")));
-
         node_id
+    }
+
+    fn visit_break_stmt(&mut self, _break_stmt: &BreakStmt) -> usize {
+        0
+    }
+    fn visit_continue_stmt(&mut self, _continue_stmt: &ContinueStmt) -> usize {
+        0
+    }
+    fn visit_array_access(&mut self, _access: &ArrayAccessExpr) -> usize {
+        let id = self.next_node_id();
+        self.output
+            .push_str(&self.format_node(id, "ArrayAccess", &self.colors.expression));
+        id
     }
 }

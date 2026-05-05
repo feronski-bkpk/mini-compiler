@@ -196,6 +196,7 @@ impl ABI {
             crate::ir::IRType::Struct(_) => 8,
             crate::ir::IRType::Pointer(_) => 8,
             crate::ir::IRType::Unknown => 0,
+            crate::ir::IRType::Array(_, _) => 0,
         }
     }
 
@@ -210,6 +211,7 @@ impl ABI {
             crate::ir::IRType::Struct(_) => 8,
             crate::ir::IRType::Pointer(_) => 8,
             crate::ir::IRType::Unknown => 0,
+            crate::ir::IRType::Array(_, _) => 0,
         }
     }
 

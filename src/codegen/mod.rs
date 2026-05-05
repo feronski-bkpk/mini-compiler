@@ -4,6 +4,9 @@
 //! в ассемблер x86-64 с соблюдением System V AMD64 ABI.
 
 mod abi;
+pub mod control_flow_generator;
+pub mod expression_generator;
+pub mod label_manager;
 mod register_allocator;
 mod stack_frame;
 mod x86_generator;
@@ -12,6 +15,9 @@ pub use abi::{
     ABI, CALLEE_SAVED_REGISTERS, CALLER_SAVED_REGISTERS, CallingConvention, FLOAT_ARG_REGISTERS,
     INTEGER_ARG_REGISTERS, RETURN_REGISTERS, RegisterInfo, RegisterPurpose,
 };
+pub use control_flow_generator::{ControlFlowType, LabelManager as ControlFlowLabelManager};
+pub use expression_generator::ExpressionPriority;
+pub use label_manager::LabelManager;
 pub use register_allocator::{
     AdvancedRegisterAllocator, ConflictGraph, LiveRange, Register, RegisterStatistics,
 };

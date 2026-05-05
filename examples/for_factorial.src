@@ -1,0 +1,8 @@
+fn main() -> int {
+    int result = 1;
+    int i;
+    for (i = 2; i <= 5; i = i + 1) {
+        result = result * i;
+    }
+    return result;
+}

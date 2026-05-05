@@ -1,0 +1,5 @@
+fn main() -> int {
+    float x = 3.14;
+    int y = x;
+    return y;
+}

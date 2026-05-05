@@ -1,27 +1,26 @@
 # Program: MiniC IR
-# Generated: 2026-04-20 11:16:23
+# Generated: 2026-05-04 13:20:21
 
 function main: int ()
   locals:
     x: int
     y: int
 
-  main_1:
-    t1 = MOVE 5
-    x = MOVE t1
-    t2 = CMP_GT x, 0
-    JUMP_IF t2, main_2
-    JUMP main_3
+  L1_001_entry:
+    x = MOVE 5
+    t1 = CMP_GT x, 0
+    JUMP_IF_NOT t1, L1_003_else
+    JUMP L1_002_then
 
-  main_2:
+  L1_002_then:
     y = MOVE 10
-    JUMP main_4
+    JUMP L1_004_endif
 
-  main_3:
+  L1_003_else:
     y = MOVE 20
-    JUMP main_4
+    JUMP L1_004_endif
 
-  main_4:
+  L1_004_endif:
     RETURN y
 
 

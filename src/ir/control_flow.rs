@@ -347,14 +347,16 @@ pub fn build_cfg(func_ir: &mut FunctionIR) {
         };
 
         for succ in successors {
-            func_ir
-                .get_block_mut(&block_label)
-                .unwrap()
-                .add_successor(succ.clone());
-            func_ir
-                .get_block_mut(&succ)
-                .unwrap()
-                .add_predecessor(block_label.clone());
+            if func_ir.get_block(&succ).is_some() {
+                func_ir
+                    .get_block_mut(&block_label)
+                    .unwrap()
+                    .add_successor(succ.clone());
+                func_ir
+                    .get_block_mut(&succ)
+                    .unwrap()
+                    .add_predecessor(block_label.clone());
+            }
         }
     }
 }

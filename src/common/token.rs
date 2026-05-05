@@ -169,6 +169,17 @@ pub enum TokenKind {
     /// `.` - точка для доступа к полям структур
     Dot,
 
+    /// `break` - выход из цикла
+    KwBreak,
+    /// `continue` - переход к следующей итерации цикла
+    KwContinue,
+    /// `switch` - оператор выбора
+    KwSwitch,
+    /// `case` - ветка switch
+    KwCase,
+    /// `default` - ветка по умолчанию
+    KwDefault,
+
     /// Маркер конца файла
     ///
     /// Генерируется сканером при достижении конца входных данных
@@ -527,6 +538,11 @@ pub fn token_type_name(kind: &TokenKind) -> &'static str {
         TokenKind::Dot => "DOT",
         TokenKind::PlusPlus => "PLUS_PLUS",
         TokenKind::MinusMinus => "MINUS_MINUS",
+        TokenKind::KwBreak => "KW_BREAK",
+        TokenKind::KwContinue => "KW_CONTINUE",
+        TokenKind::KwSwitch => "KW_SWITCH",
+        TokenKind::KwCase => "KW_CASE",
+        TokenKind::KwDefault => "KW_DEFAULT",
     }
 }
 

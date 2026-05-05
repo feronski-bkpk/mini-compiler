@@ -163,3 +163,463 @@ fn test_integration_function_call() {
     "#;
     assert!(compile_and_run(source, 30));
 }
+
+#[test]
+fn test_integration_if_statement() {
+    let source = r#"
+        fn main() -> int {
+            int x = 10;
+            int result = 0;
+            if (x > 5) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_if_else_true_branch() {
+    let source = r#"
+        fn main() -> int {
+            int x = 10;
+            if (x > 5) {
+                return 100;
+            } else {
+                return 0;
+            }
+        }
+    "#;
+    assert!(compile_and_run(source, 100));
+}
+
+#[test]
+fn test_integration_if_else_false_branch() {
+    let source = r#"
+        fn main() -> int {
+            int x = 3;
+            if (x > 5) {
+                return 100;
+            } else {
+                return 0;
+            }
+        }
+    "#;
+    assert!(compile_and_run(source, 0));
+}
+
+#[test]
+fn test_integration_nested_if() {
+    let source = r#"
+        fn main() -> int {
+            int x = 10;
+            int y = 20;
+            if (x > 5) {
+                if (y > 15) {
+                    return 2;
+                } else {
+                    return 1;
+                }
+            } else {
+                return 0;
+            }
+        }
+    "#;
+    assert!(compile_and_run(source, 2));
+}
+
+#[test]
+fn test_integration_nested_if_second_case() {
+    let source = r#"
+        fn main() -> int {
+            int x = 10;
+            int y = 10;
+            if (x > 5) {
+                if (y > 15) {
+                    return 2;
+                } else {
+                    return 1;
+                }
+            } else {
+                return 0;
+            }
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_while_loop_sum() {
+    let source = r#"
+        fn main() -> int {
+            int sum = 0;
+            int i = 0;
+            while (i < 10) {
+                sum = sum + i;
+                i = i + 1;
+            }
+            return sum;
+        }
+    "#;
+    assert!(compile_and_run(source, 45));
+}
+
+#[test]
+fn test_integration_while_loop_single_iteration() {
+    let source = r#"
+        fn main() -> int {
+            int i = 0;
+            int count = 0;
+            while (i < 1) {
+                count = count + 1;
+                i = i + 1;
+            }
+            return count;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_while_loop_zero_iterations() {
+    let source = r#"
+        fn main() -> int {
+            int i = 10;
+            int count = 0;
+            while (i < 5) {
+                count = count + 1;
+                i = i + 1;
+            }
+            return count;
+        }
+    "#;
+    assert!(compile_and_run(source, 0));
+}
+
+#[test]
+fn test_integration_for_loop_sum() {
+    let source = r#"
+        fn main() -> int {
+            int sum = 0;
+            int i;
+            for (i = 1; i <= 5; i = i + 1) {
+                sum = sum + i;
+            }
+            return sum;
+        }
+    "#;
+    assert!(compile_and_run(source, 15));
+}
+
+#[test]
+fn test_integration_for_loop_factorial() {
+    let source = r#"
+        fn main() -> int {
+            int result = 1;
+            int i;
+            for (i = 2; i <= 5; i = i + 1) {
+                result = result * i;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 120));
+}
+
+#[test]
+fn test_integration_for_loop_counting_down() {
+    let source = r#"
+        fn main() -> int {
+            int sum = 0;
+            int i;
+            for (i = 5; i >= 1; i = i - 1) {
+                sum = sum + i;
+            }
+            return sum;
+        }
+    "#;
+    assert!(compile_and_run(source, 15));
+}
+
+#[test]
+fn test_integration_short_circuit_and_true() {
+    let source = r#"
+        fn main() -> int {
+            int a = 5;
+            int b = 10;
+            int result = 0;
+            if (a != 0 && b > 5) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_short_circuit_and_false() {
+    let source = r#"
+        fn main() -> int {
+            int a = 0;
+            int b = 10;
+            int result = 0;
+            if (a != 0 && b / a > 2) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 0));
+}
+
+#[test]
+fn test_integration_short_circuit_or() {
+    let source = r#"
+        fn main() -> int {
+            int a = 5;
+            int result = 0;
+            if (a != 0 || a / 0 > 2) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_complex_boolean() {
+    let source = r#"
+        fn main() -> int {
+            int a = 5;
+            int b = 10;
+            int c = 3;
+            int result = 0;
+            if ((a > 0 && b > 0) || c > 10) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_not_operator() {
+    let source = r#"
+        fn main() -> int {
+            bool flag = false;
+            int result = 0;
+            if (!flag) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_not_operator_false() {
+    let source = r#"
+        fn main() -> int {
+            bool flag = true;
+            int result = 0;
+            if (!flag) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 0));
+}
+
+#[test]
+fn test_integration_complex_expression_precedence() {
+    let source = r#"
+        fn main() -> int {
+            int a = 6;
+            int b = 4;
+            int c = 2;
+            return ((a + b) * c) / (a - b);
+        }
+    "#;
+    assert!(compile_and_run(source, 10));
+}
+
+#[test]
+fn test_integration_loop_with_conditional() {
+    let source = r#"
+        fn main() -> int {
+            int sum = 0;
+            int i = 0;
+            while (i < 5) {
+                if (i % 2 == 0) {
+                    sum = sum + i;
+                } else {
+                    sum = sum + 1;
+                }
+                i = i + 1;
+            }
+            return sum;
+        }
+    "#;
+    assert!(compile_and_run(source, 8));
+}
+
+#[test]
+fn test_integration_factorial_recursive() {
+    let source = r#"
+        fn factorial(int n) -> int {
+            if (n <= 1) {
+                return 1;
+            }
+            return n * factorial(n - 1);
+        }
+
+        fn main() -> int {
+            return factorial(5);
+        }
+    "#;
+    assert!(compile_and_run(source, 120));
+}
+
+#[test]
+fn test_integration_fibonacci() {
+    let source = r#"
+        fn fib(int n) -> int {
+            if (n <= 1) {
+                return n;
+            }
+            return fib(n - 1) + fib(n - 2);
+        }
+
+        fn main() -> int {
+            return fib(6);
+        }
+    "#;
+    assert!(compile_and_run(source, 8));
+}
+
+#[test]
+fn test_integration_multiple_conditions() {
+    let source = r#"
+        fn main() -> int {
+            int score = 85;
+            int grade = 0;
+            if (score >= 90) {
+                grade = 5;
+            } else {
+                if (score >= 80) {
+                    grade = 4;
+                } else {
+                    if (score >= 70) {
+                        grade = 3;
+                    } else {
+                        grade = 2;
+                    }
+                }
+            }
+            return grade;
+        }
+    "#;
+    assert!(compile_and_run(source, 4));
+}
+
+#[test]
+fn test_integration_assignment_operators() {
+    let source = r#"
+        fn main() -> int {
+            int x = 10;
+            x = x + 5;
+            return x;
+        }
+    "#;
+    assert!(compile_and_run(source, 15));
+}
+
+#[test]
+fn test_integration_relational_operators_eq() {
+    let source = r#"
+        fn main() -> int {
+            int result = 0;
+            if (5 == 5) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_relational_operators_ne() {
+    let source = r#"
+        fn main() -> int {
+            int result = 0;
+            if (5 != 3) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_relational_operators_lt() {
+    let source = r#"
+        fn main() -> int {
+            int result = 0;
+            if (3 < 5) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_relational_operators_le() {
+    let source = r#"
+        fn main() -> int {
+            int result = 0;
+            if (5 <= 5) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_relational_operators_gt() {
+    let source = r#"
+        fn main() -> int {
+            int result = 0;
+            if (5 > 3) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}
+
+#[test]
+fn test_integration_relational_operators_ge() {
+    let source = r#"
+        fn main() -> int {
+            int result = 0;
+            if (5 >= 5) {
+                result = 1;
+            }
+            return result;
+        }
+    "#;
+    assert!(compile_and_run(source, 1));
+}

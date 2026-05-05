@@ -260,8 +260,6 @@ mod tests {
         );
     }
 
-    // === Тесты на ошибки ===
-
     #[test]
     fn test_missing_semicolon() {
         let source = "fn main() { return 42 }";
@@ -530,6 +528,11 @@ mod tests {
             fn visit_call(&mut self, _call: &minic::parser::CallExpr) {}
             fn visit_struct_access(&mut self, _access: &minic::parser::StructAccessExpr) {}
             fn visit_grouped(&mut self, _grouped: &minic::parser::GroupedExpr) {}
+            fn visit_break_stmt(&mut self, _break_stmt: &minic::parser::BreakStmt) {}
+            fn visit_continue_stmt(&mut self, _continue_stmt: &minic::parser::ContinueStmt) {}
+            fn visit_switch_stmt(&mut self, _switch_stmt: &minic::parser::SwitchStmt) {}
+            fn visit_case_stmt(&mut self, _case_stmt: &minic::parser::CaseStmt) {}
+            fn visit_array_access(&mut self, _access: &minic::parser::ArrayAccessExpr) {}
         }
 
         let mut visitor = CountingVisitor::new();

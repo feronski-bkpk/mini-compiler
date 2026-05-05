@@ -19,6 +19,11 @@ impl Node {
     pub fn new(line: usize, column: usize) -> Self {
         Self { line, column }
     }
+
+    /// Возвращает позицию узла
+    pub fn position(&self) -> Position {
+        Position::new(self.line, self.column)
+    }
 }
 
 /// Программа - корневой узел AST
@@ -120,6 +125,7 @@ pub enum Type {
     String,
     Struct(String),
     Inferred,
+    Array(Box<Type>, Option<i32>),
 }
 
 impl fmt::Display for Type {
@@ -132,7 +138,41 @@ impl fmt::Display for Type {
             Type::String => write!(f, "string"),
             Type::Struct(name) => write!(f, "struct {}", name),
             Type::Inferred => write!(f, "var"),
+            Type::Array(inner, size) => {
+                if let Some(s) = size {
+                    write!(f, "{}[{}]", inner, s)
+                } else {
+                    write!(f, "{}[]", inner)
+                }
+            }
         }
+    }
+}
+
+impl Type {
+    /// Проверяет, является ли тип void
+    pub fn is_void(&self) -> bool {
+        matches!(self, Type::Void)
+    }
+
+    /// Проверяет, является ли тип числовым
+    pub fn is_numeric(&self) -> bool {
+        matches!(self, Type::Int | Type::Float)
+    }
+
+    /// Проверяет, является ли тип целочисленным
+    pub fn is_integer(&self) -> bool {
+        matches!(self, Type::Int)
+    }
+
+    /// Проверяет, является ли тип логическим
+    pub fn is_boolean(&self) -> bool {
+        matches!(self, Type::Bool)
+    }
+
+    /// Проверяет, является ли тип массивом
+    pub fn is_array(&self) -> bool {
+        matches!(self, Type::Array(_, _))
     }
 }
 
@@ -147,6 +187,9 @@ pub enum Statement {
     Return(ReturnStmt),
     Block(BlockStmt),
     Empty(EmptyStmt),
+    Break(BreakStmt),
+    Continue(ContinueStmt),
+    Switch(SwitchStmt),
 }
 
 /// Объявление переменной
@@ -310,6 +353,78 @@ impl ReturnStmt {
     }
 }
 
+/// Инструкция break
+#[derive(Debug, Clone, PartialEq)]
+pub struct BreakStmt {
+    pub node: Node,
+}
+
+impl BreakStmt {
+    pub fn new(line: usize, column: usize) -> Self {
+        Self {
+            node: Node::new(line, column),
+        }
+    }
+}
+
+/// Инструкция continue
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContinueStmt {
+    pub node: Node,
+}
+
+impl ContinueStmt {
+    pub fn new(line: usize, column: usize) -> Self {
+        Self {
+            node: Node::new(line, column),
+        }
+    }
+}
+
+/// Оператор switch
+#[derive(Debug, Clone, PartialEq)]
+pub struct SwitchStmt {
+    pub node: Node,
+    pub expression: Box<Expression>,
+    pub cases: Vec<CaseStmt>,
+    pub default: Option<Box<Statement>>,
+}
+
+impl SwitchStmt {
+    pub fn new(
+        expression: Expression,
+        cases: Vec<CaseStmt>,
+        default: Option<Statement>,
+        line: usize,
+        column: usize,
+    ) -> Self {
+        Self {
+            node: Node::new(line, column),
+            expression: Box::new(expression),
+            cases,
+            default: default.map(Box::new),
+        }
+    }
+}
+
+/// Ветка case в switch
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaseStmt {
+    pub node: Node,
+    pub value: Literal,
+    pub body: Box<Statement>,
+}
+
+impl CaseStmt {
+    pub fn new(value: Literal, body: Statement, line: usize, column: usize) -> Self {
+        Self {
+            node: Node::new(line, column),
+            value,
+            body: Box::new(body),
+        }
+    }
+}
+
 /// Выражения
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
@@ -320,7 +435,25 @@ pub enum Expression {
     Assignment(AssignmentExpr),
     Call(CallExpr),
     StructAccess(StructAccessExpr),
+    ArrayAccess(ArrayAccessExpr),
     Grouped(GroupedExpr),
+}
+
+impl Expression {
+    /// Возвращает позицию выражения (узел, с которого начинается выражение)
+    pub fn node_position(&self) -> Position {
+        match self {
+            Expression::Literal(lit) => lit.node.position(),
+            Expression::Identifier(ident) => ident.node.position(),
+            Expression::Binary(binary) => binary.node.position(),
+            Expression::Unary(unary) => unary.node.position(),
+            Expression::Assignment(assign) => assign.node.position(),
+            Expression::Call(call) => call.node.position(),
+            Expression::StructAccess(access) => access.node.position(),
+            Expression::ArrayAccess(access) => access.node.position(),
+            Expression::Grouped(grouped) => grouped.node.position(),
+        }
+    }
 }
 
 /// Литерал
@@ -481,6 +614,24 @@ impl StructAccessExpr {
     }
 }
 
+/// Доступ к элементу массива
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrayAccessExpr {
+    pub node: Node,
+    pub array: Box<Expression>,
+    pub index: Box<Expression>,
+}
+
+impl ArrayAccessExpr {
+    pub fn new(array: Expression, index: Expression, line: usize, column: usize) -> Self {
+        Self {
+            node: Node::new(line, column),
+            array: Box::new(array),
+            index: Box::new(index),
+        }
+    }
+}
+
 /// Сгруппированное выражение (в скобках)
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupedExpr {
@@ -580,50 +731,5 @@ impl fmt::Display for AssignmentOp {
             AssignmentOp::MulAssign => write!(f, "*="),
             AssignmentOp::DivAssign => write!(f, "/="),
         }
-    }
-}
-
-impl Node {
-    /// Возвращает позицию узла
-    pub fn position(&self) -> Position {
-        Position::new(self.line, self.column)
-    }
-}
-
-impl Expression {
-    /// Возвращает позицию выражения (узел, с которого начинается выражение)
-    pub fn node_position(&self) -> Position {
-        match self {
-            Expression::Literal(lit) => lit.node.position(),
-            Expression::Identifier(ident) => ident.node.position(),
-            Expression::Binary(binary) => binary.node.position(),
-            Expression::Unary(unary) => unary.node.position(),
-            Expression::Assignment(assign) => assign.node.position(),
-            Expression::Call(call) => call.node.position(),
-            Expression::StructAccess(access) => access.node.position(),
-            Expression::Grouped(grouped) => grouped.node.position(),
-        }
-    }
-}
-
-impl Type {
-    /// Проверяет, является ли тип void
-    pub fn is_void(&self) -> bool {
-        matches!(self, Type::Void)
-    }
-
-    /// Проверяет, является ли тип числовым
-    pub fn is_numeric(&self) -> bool {
-        matches!(self, Type::Int | Type::Float)
-    }
-
-    /// Проверяет, является ли тип целочисленным
-    pub fn is_integer(&self) -> bool {
-        matches!(self, Type::Int)
-    }
-
-    /// Проверяет, является ли тип логическим
-    pub fn is_boolean(&self) -> bool {
-        matches!(self, Type::Bool)
     }
 }

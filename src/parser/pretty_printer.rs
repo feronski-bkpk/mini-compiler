@@ -61,7 +61,6 @@ impl Visitor<()> for PrettyPrinter {
     fn visit_program(&mut self, program: &Program) {
         self.writeln(&format!("Program [line {}]:", program.node.line));
         self.indent();
-
         if program.declarations.is_empty() {
             self.writeln("(empty program)");
         } else {
@@ -73,7 +72,6 @@ impl Visitor<()> for PrettyPrinter {
                 }
             }
         }
-
         self.dedent();
     }
 
@@ -83,7 +81,6 @@ impl Visitor<()> for PrettyPrinter {
             func.name, func.return_type, func.node.line
         ));
         self.indent();
-
         self.write_indent();
         self.output.push_str("Parameters: [");
         for (i, param) in func.parameters.iter().enumerate() {
@@ -94,9 +91,7 @@ impl Visitor<()> for PrettyPrinter {
                 .push_str(&format!("{}: {}", param.name, param.param_type));
         }
         self.output.push_str("]\n");
-
         self.visit_block(&func.body);
-
         self.dedent();
     }
 
@@ -106,14 +101,12 @@ impl Visitor<()> for PrettyPrinter {
             struct_decl.name, struct_decl.node.line
         ));
         self.indent();
-
         self.writeln("Fields:");
         self.indent();
         for field in &struct_decl.fields {
             self.visit_var_decl(field);
         }
         self.dedent();
-
         self.dedent();
     }
 
@@ -121,7 +114,6 @@ impl Visitor<()> for PrettyPrinter {
         self.write_indent();
         self.output
             .push_str(&format!("VarDecl: {} {}", var_decl.var_type, var_decl.name));
-
         if let Some(init) = &var_decl.initializer {
             self.output.push_str(" = ");
             match init.as_ref() {
@@ -157,6 +149,9 @@ impl Visitor<()> for PrettyPrinter {
                     self.visit_grouped(g);
                     self.output.push(')');
                 }
+                Expression::ArrayAccess(_aa) => {
+                    self.output.push_str("Arr[...]");
+                }
             }
         }
         self.output.push('\n');
@@ -167,7 +162,6 @@ impl Visitor<()> for PrettyPrinter {
     fn visit_block(&mut self, block: &BlockStmt) {
         self.writeln(&format!("Block [line {}]:", block.node.line));
         self.indent();
-
         if block.statements.is_empty() {
             self.writeln("(empty block)");
         } else {
@@ -181,17 +175,18 @@ impl Visitor<()> for PrettyPrinter {
                     Statement::Return(r) => self.visit_return_stmt(r),
                     Statement::Block(b) => self.visit_block(b),
                     Statement::Empty(e) => self.visit_empty_stmt(e),
+                    Statement::Break(b) => self.visit_break_stmt(b),
+                    Statement::Continue(c) => self.visit_continue_stmt(c),
+                    Statement::Switch(s) => self.visit_switch_stmt(s),
                 }
             }
         }
-
         self.dedent();
     }
 
     fn visit_if_stmt(&mut self, if_stmt: &IfStmt) {
         self.writeln(&format!("IfStmt [line {}]:", if_stmt.node.line));
         self.indent();
-
         self.write_indent();
         self.output.push_str("Condition: ");
         match if_stmt.condition.as_ref() {
@@ -219,9 +214,11 @@ impl Visitor<()> for PrettyPrinter {
             Expression::Grouped(g) => {
                 self.visit_grouped(g);
             }
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
         self.output.push('\n');
-
         self.writeln("Then:");
         self.indent();
         match if_stmt.then_branch.as_ref() {
@@ -233,9 +230,11 @@ impl Visitor<()> for PrettyPrinter {
             Statement::Return(r) => self.visit_return_stmt(r),
             Statement::Block(b) => self.visit_block(b),
             Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(b) => self.visit_break_stmt(b),
+            Statement::Continue(c) => self.visit_continue_stmt(c),
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         }
         self.dedent();
-
         if let Some(else_branch) = &if_stmt.else_branch {
             self.writeln("Else:");
             self.indent();
@@ -248,17 +247,96 @@ impl Visitor<()> for PrettyPrinter {
                 Statement::Return(r) => self.visit_return_stmt(r),
                 Statement::Block(b) => self.visit_block(b),
                 Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(b) => self.visit_break_stmt(b),
+                Statement::Continue(c) => self.visit_continue_stmt(c),
+                Statement::Switch(s) => self.visit_switch_stmt(s),
             }
             self.dedent();
         }
+        self.dedent();
+    }
 
+    fn visit_switch_stmt(&mut self, switch_stmt: &SwitchStmt) {
+        self.writeln(&format!("SwitchStmt [line {}]:", switch_stmt.node.line));
+        self.indent();
+        self.write_indent();
+        self.output.push_str("Expression: ");
+        match switch_stmt.expression.as_ref() {
+            Expression::Literal(l) => {
+                self.output.push_str(&format!("{}", l.value));
+            }
+            Expression::Identifier(i) => {
+                self.output.push_str(&i.name);
+            }
+            Expression::Binary(b) => {
+                self.visit_binary(b);
+            }
+            Expression::Unary(u) => {
+                self.visit_unary(u);
+            }
+            Expression::Assignment(a) => {
+                self.visit_assignment(a);
+            }
+            Expression::Call(c) => {
+                self.visit_call(c);
+            }
+            Expression::StructAccess(sa) => {
+                self.visit_struct_access(sa);
+            }
+            Expression::Grouped(g) => {
+                self.visit_grouped(g);
+            }
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
+        }
+        self.output.push('\n');
+        for case in &switch_stmt.cases {
+            self.visit_case_stmt(case);
+        }
+        if let Some(default) = &switch_stmt.default {
+            self.writeln("Default:");
+            self.indent();
+            match default.as_ref() {
+                Statement::VariableDecl(v) => self.visit_var_decl(v),
+                Statement::Expression(e) => self.visit_expr_stmt(e),
+                Statement::If(i) => self.visit_if_stmt(i),
+                Statement::While(w) => self.visit_while_stmt(w),
+                Statement::For(f) => self.visit_for_stmt(f),
+                Statement::Return(r) => self.visit_return_stmt(r),
+                Statement::Block(b) => self.visit_block(b),
+                Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(b) => self.visit_break_stmt(b),
+                Statement::Continue(c) => self.visit_continue_stmt(c),
+                Statement::Switch(s) => self.visit_switch_stmt(s),
+            }
+            self.dedent();
+        }
+        self.dedent();
+    }
+
+    fn visit_case_stmt(&mut self, case_stmt: &CaseStmt) {
+        self.writeln(&format!("Case {}:", case_stmt.value.value));
+        self.indent();
+        match case_stmt.body.as_ref() {
+            Statement::VariableDecl(v) => self.visit_var_decl(v),
+            Statement::Expression(e) => self.visit_expr_stmt(e),
+            Statement::If(i) => self.visit_if_stmt(i),
+            Statement::While(w) => self.visit_while_stmt(w),
+            Statement::For(f) => self.visit_for_stmt(f),
+            Statement::Return(r) => self.visit_return_stmt(r),
+            Statement::Block(b) => self.visit_block(b),
+            Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(b) => self.visit_break_stmt(b),
+            Statement::Continue(c) => self.visit_continue_stmt(c),
+            Statement::Switch(s) => self.visit_switch_stmt(s),
+        }
         self.dedent();
     }
 
     fn visit_while_stmt(&mut self, while_stmt: &WhileStmt) {
         self.writeln(&format!("WhileStmt [line {}]:", while_stmt.node.line));
         self.indent();
-
         self.write_indent();
         self.output.push_str("Condition: ");
         match while_stmt.condition.as_ref() {
@@ -286,9 +364,11 @@ impl Visitor<()> for PrettyPrinter {
             Expression::Grouped(g) => {
                 self.visit_grouped(g);
             }
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
         self.output.push('\n');
-
         self.writeln("Body:");
         self.indent();
         match while_stmt.body.as_ref() {
@@ -300,16 +380,17 @@ impl Visitor<()> for PrettyPrinter {
             Statement::Return(r) => self.visit_return_stmt(r),
             Statement::Block(b) => self.visit_block(b),
             Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(b) => self.visit_break_stmt(b),
+            Statement::Continue(c) => self.visit_continue_stmt(c),
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         }
         self.dedent();
-
         self.dedent();
     }
 
     fn visit_for_stmt(&mut self, for_stmt: &ForStmt) {
         self.writeln(&format!("ForStmt [line {}]:", for_stmt.node.line));
         self.indent();
-
         if let Some(init) = &for_stmt.init {
             self.writeln("Init:");
             self.indent();
@@ -322,10 +403,12 @@ impl Visitor<()> for PrettyPrinter {
                 Statement::Return(r) => self.visit_return_stmt(r),
                 Statement::Block(b) => self.visit_block(b),
                 Statement::Empty(e) => self.visit_empty_stmt(e),
+                Statement::Break(b) => self.visit_break_stmt(b),
+                Statement::Continue(c) => self.visit_continue_stmt(c),
+                Statement::Switch(s) => self.visit_switch_stmt(s),
             }
             self.dedent();
         }
-
         if let Some(condition) = &for_stmt.condition {
             self.write_indent();
             self.output.push_str("Condition: ");
@@ -354,10 +437,12 @@ impl Visitor<()> for PrettyPrinter {
                 Expression::Grouped(g) => {
                     self.visit_grouped(g);
                 }
+                Expression::ArrayAccess(_) => {
+                    self.output.push_str("Arr[...]");
+                }
             }
             self.output.push('\n');
         }
-
         if let Some(update) = &for_stmt.update {
             self.write_indent();
             self.output.push_str("Update: ");
@@ -386,10 +471,12 @@ impl Visitor<()> for PrettyPrinter {
                 Expression::Grouped(g) => {
                     self.visit_grouped(g);
                 }
+                Expression::ArrayAccess(_) => {
+                    self.output.push_str("Arr[...]");
+                }
             }
             self.output.push('\n');
         }
-
         self.writeln("Body:");
         self.indent();
         match for_stmt.body.as_ref() {
@@ -401,16 +488,17 @@ impl Visitor<()> for PrettyPrinter {
             Statement::Return(r) => self.visit_return_stmt(r),
             Statement::Block(b) => self.visit_block(b),
             Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(b) => self.visit_break_stmt(b),
+            Statement::Continue(c) => self.visit_continue_stmt(c),
+            Statement::Switch(s) => self.visit_switch_stmt(s),
         }
         self.dedent();
-
         self.dedent();
     }
 
     fn visit_return_stmt(&mut self, return_stmt: &ReturnStmt) {
         self.write_indent();
         self.output.push_str("Return");
-
         if let Some(value) = &return_stmt.value {
             self.output.push_str(": ");
             match value.as_ref() {
@@ -437,6 +525,9 @@ impl Visitor<()> for PrettyPrinter {
                 }
                 Expression::Grouped(g) => {
                     self.visit_grouped(g);
+                }
+                Expression::ArrayAccess(_) => {
+                    self.output.push_str("Expr: Arr[...]");
                 }
             }
         }
@@ -476,6 +567,9 @@ impl Visitor<()> for PrettyPrinter {
                 self.output.push_str("Expr: ");
                 self.visit_grouped(g);
             }
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
         self.output.push('\n');
     }
@@ -483,11 +577,16 @@ impl Visitor<()> for PrettyPrinter {
     fn visit_empty_stmt(&mut self, _empty_stmt: &EmptyStmt) {
         self.writeln("EmptyStmt: ;");
     }
+    fn visit_break_stmt(&mut self, _break_stmt: &BreakStmt) {
+        self.writeln("Break");
+    }
+    fn visit_continue_stmt(&mut self, _continue_stmt: &ContinueStmt) {
+        self.writeln("Continue");
+    }
 
     fn visit_literal(&mut self, literal: &Literal) {
         self.output.push_str(&format!("{}", literal.value));
     }
-
     fn visit_identifier(&mut self, identifier: &IdentifierExpr) {
         self.output.push_str(&identifier.name);
     }
@@ -503,6 +602,9 @@ impl Visitor<()> for PrettyPrinter {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
         self.output.push_str(&format!(" {} ", binary.operator));
         match binary.right.as_ref() {
@@ -514,6 +616,9 @@ impl Visitor<()> for PrettyPrinter {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
         self.output.push(')');
     }
@@ -541,6 +646,9 @@ impl Visitor<()> for PrettyPrinter {
                 self.visit_grouped(g);
                 self.output.push(')');
             }
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
     }
 
@@ -554,6 +662,9 @@ impl Visitor<()> for PrettyPrinter {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
         self.output.push_str(&format!(" {} ", assignment.operator));
         match assignment.value.as_ref() {
@@ -565,6 +676,9 @@ impl Visitor<()> for PrettyPrinter {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
     }
 
@@ -578,6 +692,9 @@ impl Visitor<()> for PrettyPrinter {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
         self.output.push('(');
         for (i, arg) in call.arguments.iter().enumerate() {
@@ -593,6 +710,9 @@ impl Visitor<()> for PrettyPrinter {
                 Expression::Call(c) => self.visit_call(c),
                 Expression::StructAccess(sa) => self.visit_struct_access(sa),
                 Expression::Grouped(g) => self.visit_grouped(g),
+                Expression::ArrayAccess(_) => {
+                    self.output.push_str("Arr[...]");
+                }
             }
         }
         self.output.push(')');
@@ -608,6 +728,9 @@ impl Visitor<()> for PrettyPrinter {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
         self.output.push_str(&format!(".{}", access.field));
     }
@@ -623,7 +746,14 @@ impl Visitor<()> for PrettyPrinter {
             Expression::Call(c) => self.visit_call(c),
             Expression::StructAccess(sa) => self.visit_struct_access(sa),
             Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
         }
         self.output.push(')');
+    }
+
+    fn visit_array_access(&mut self, _access: &ArrayAccessExpr) {
+        self.writeln("ArrayAccess");
     }
 }

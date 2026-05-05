@@ -106,6 +106,7 @@ fn golden_nested_if() {
 }
 
 /// Тест: логические операции
+/// Тест: логические операции
 #[test]
 fn golden_logical_ops() {
     let source = r#"
@@ -135,9 +136,14 @@ fn golden_logical_ops() {
     let program = ir_generator.generate(semantic_output.decorated_ast.unwrap());
     let actual = IRPrinter::to_text(&program);
 
-    assert!(actual.contains("AND"), "Должна быть инструкция AND");
-    assert!(actual.contains("OR"), "Должна быть инструкция OR");
-    assert!(actual.contains("NOT"), "Должна быть инструкция NOT");
+    assert!(
+        actual.contains("JUMP_IF") || actual.contains("JUMP_IF_NOT"),
+        "Должны быть условные переходы для short-circuit"
+    );
+    assert!(
+        actual.contains("XOR") || actual.contains("NOT"),
+        "Должна быть инструкция NOT (или XOR)"
+    );
 }
 
 /// Тест: операции сравнения

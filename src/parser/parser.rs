@@ -111,8 +111,6 @@ impl Parser {
         }
     }
 
-    // === Вспомогательные методы ===
-
     /// Возвращает текущий токен без потребления
     pub fn peek(&self) -> &Token {
         &self.tokens[self.current]
@@ -381,8 +379,6 @@ impl Parser {
                 | TokenKind::SlashEq
         )
     }
-
-    // === Парсинг объявлений ===
 
     /// Парсит объявление верхнего уровня
     pub fn parse_declaration(&mut self) -> ParseResult<Declaration> {
@@ -700,7 +696,7 @@ impl Parser {
         let token = self.peek().clone();
         let pos = token.position.clone();
 
-        let typ = match &token.kind {
+        let mut typ = match &token.kind {
             TokenKind::KwInt => {
                 self.advance();
                 Type::Int
@@ -755,10 +751,23 @@ impl Parser {
             }
         };
 
+        while self.match_token(&TokenKind::LBracket) {
+            let size = if let TokenKind::IntLiteral(s) = self.peek().kind {
+                self.advance();
+                Some(s)
+            } else {
+                None
+            };
+            self.consume(
+                &TokenKind::RBracket,
+                ParseErrorKind::MissingCloseParen,
+                "ожидалось ']'",
+            )?;
+            typ = Type::Array(Box::new(typ), size);
+        }
+
         Ok(typ)
     }
-
-    // === Парсинг инструкций ===
 
     /// Парсит инструкцию
     pub fn parse_statement(&mut self) -> ParseResult<Statement> {
@@ -777,6 +786,23 @@ impl Parser {
             TokenKind::KwFor => Ok(Statement::For(self.parse_for_stmt()?)),
             TokenKind::KwReturn => Ok(Statement::Return(self.parse_return_stmt()?)),
             TokenKind::LBrace => Ok(Statement::Block(self.parse_block()?)),
+            TokenKind::KwBreak => {
+                self.advance();
+                let pos = self.previous().position.clone();
+                if self.check(&TokenKind::Semicolon) {
+                    self.advance();
+                }
+                Ok(Statement::Break(BreakStmt::new(pos.line, pos.column)))
+            }
+            TokenKind::KwContinue => {
+                self.advance();
+                let pos = self.previous().position.clone();
+                if self.check(&TokenKind::Semicolon) {
+                    self.advance();
+                }
+                Ok(Statement::Continue(ContinueStmt::new(pos.line, pos.column)))
+            }
+            TokenKind::KwSwitch => Ok(Statement::Switch(self.parse_switch_stmt()?)),
             TokenKind::Semicolon => {
                 self.advance();
                 Ok(Statement::Empty(EmptyStmt::new(
@@ -1132,8 +1158,6 @@ impl Parser {
             Ok(ReturnStmt::new(value, start_pos.line, start_pos.column))
         }
     }
-
-    // === Парсинг выражений с приоритетами ===
 
     /// Парсит выражение (начинаем с самого низкого приоритета)
     pub fn parse_expression(&mut self) -> ParseResult<Expression> {
@@ -1569,6 +1593,124 @@ impl Parser {
         } else {
             Ok(call_expr)
         }
+    }
+
+    /// Парсит switch: switch (expression) { case literal: statement; ... [default: statement;] }
+    pub fn parse_switch_stmt(&mut self) -> ParseResult<SwitchStmt> {
+        let start_pos = self.current_position();
+
+        self.consume(
+            &TokenKind::KwSwitch,
+            ParseErrorKind::ExpectedToken,
+            "ожидалось 'switch'",
+        )?;
+
+        let has_paren = self.check(&TokenKind::LParen);
+        if has_paren {
+            self.advance();
+        }
+
+        let expression = self.parse_expression()?;
+
+        if has_paren && self.check(&TokenKind::RParen) {
+            self.advance();
+        }
+
+        self.consume(
+            &TokenKind::LBrace,
+            ParseErrorKind::MissingOpenBrace,
+            "ожидалось '{' после switch",
+        )?;
+
+        let mut cases = Vec::new();
+        let mut default = None;
+
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+            if self.match_token(&TokenKind::KwCase) {
+                // case literal: statement
+                let value = match self.parse_primary() {
+                    Ok(Expression::Literal(lit)) => lit,
+                    Ok(_) => {
+                        return Err(ParseError::new(
+                            self.current_position(),
+                            ParseErrorKind::InvalidExpression,
+                        )
+                        .with_message("Ожидался литерал в case".to_string()));
+                    }
+                    Err(e) => return Err(e),
+                };
+
+                self.consume(
+                    &TokenKind::Colon,
+                    ParseErrorKind::ExpectedToken,
+                    "ожидалось ':' после case",
+                )?;
+
+                let mut case_body = Vec::new();
+                while !self.check(&TokenKind::KwCase)
+                    && !self.check(&TokenKind::KwDefault)
+                    && !self.check(&TokenKind::RBrace)
+                    && !self.is_at_end()
+                {
+                    case_body.push(self.parse_statement()?);
+                }
+
+                let body_statement = if case_body.len() == 1 {
+                    case_body.into_iter().next().unwrap()
+                } else {
+                    Statement::Block(BlockStmt::new(case_body, start_pos.line, start_pos.column))
+                };
+
+                cases.push(CaseStmt::new(
+                    value,
+                    body_statement,
+                    start_pos.line,
+                    start_pos.column,
+                ));
+            } else if self.match_token(&TokenKind::KwDefault) {
+                self.consume(
+                    &TokenKind::Colon,
+                    ParseErrorKind::ExpectedToken,
+                    "ожидалось ':' после default",
+                )?;
+
+                let mut default_body = Vec::new();
+                while !self.check(&TokenKind::KwCase)
+                    && !self.check(&TokenKind::RBrace)
+                    && !self.is_at_end()
+                {
+                    default_body.push(self.parse_statement()?);
+                }
+
+                let body_statement = if default_body.len() == 1 {
+                    default_body.into_iter().next().unwrap()
+                } else {
+                    Statement::Block(BlockStmt::new(
+                        default_body,
+                        start_pos.line,
+                        start_pos.column,
+                    ))
+                };
+
+                default = Some(body_statement);
+            } else {
+                self.advance();
+            }
+        }
+
+        self.consume(
+            &TokenKind::RBrace,
+            ParseErrorKind::MissingCloseBrace,
+            "ожидалось '}' в конце switch",
+        )?;
+
+        Ok(SwitchStmt::new(
+            expression,
+            cases,
+            default,
+            start_pos.line,
+            start_pos.column,
+        ))
     }
 }
 

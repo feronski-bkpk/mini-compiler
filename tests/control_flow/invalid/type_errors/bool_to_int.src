@@ -1,0 +1,5 @@
+fn main() -> int {
+    bool flag = true;
+    int x = flag;
+    return x;
+}

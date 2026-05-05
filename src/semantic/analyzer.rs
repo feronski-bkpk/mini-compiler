@@ -67,16 +67,12 @@ impl SemanticOutput {
 
 /// Семантический анализатор
 pub struct SemanticAnalyzer {
-    /// Таблица символов
     symbol_table: SymbolTable,
-    /// Проверщик типов
     type_checker: TypeChecker,
-    /// Собранные ошибки
     errors: SemanticErrors,
-    /// Текущая функция (для проверки return)
     current_function: Option<Symbol>,
-    /// Флаг наличия return в функции
     has_return: bool,
+    loop_depth: usize,
 }
 
 impl SemanticAnalyzer {
@@ -88,6 +84,7 @@ impl SemanticAnalyzer {
             errors: SemanticErrors::new(),
             current_function: None,
             has_return: false,
+            loop_depth: 0,
         }
     }
 
@@ -448,6 +445,35 @@ impl SemanticAnalyzer {
             Statement::For(for_stmt) => self.analyze_for(for_stmt),
             Statement::Return(return_stmt) => self.analyze_return(return_stmt),
             Statement::Block(block) => self.analyze_block(block),
+            Statement::Break(break_stmt) => {
+                if self.loop_depth == 0 {
+                    self.errors.add(
+                        SemanticError::new(
+                            SemanticErrorKind::InvalidBreak,
+                            break_stmt.node.position(),
+                            "break используется вне цикла".to_string(),
+                        )
+                        .with_suggestion(
+                            "break можно использовать только внутри while или for".to_string(),
+                        ),
+                    );
+                }
+            }
+            Statement::Continue(continue_stmt) => {
+                if self.loop_depth == 0 {
+                    self.errors.add(
+                        SemanticError::new(
+                            SemanticErrorKind::InvalidContinue,
+                            continue_stmt.node.position(),
+                            "continue используется вне цикла".to_string(),
+                        )
+                        .with_suggestion(
+                            "continue можно использовать только внутри while или for".to_string(),
+                        ),
+                    );
+                }
+            }
+            Statement::Switch(switch_stmt) => self.analyze_switch(switch_stmt),
             Statement::Empty(_) => {}
         }
     }
@@ -477,10 +503,8 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Анализ while
     fn analyze_while(&mut self, while_stmt: &WhileStmt) {
         let cond_type = self.analyze_expression(&while_stmt.condition);
-
         if let Some(cond_type) = cond_type {
             if !self.type_checker.is_compatible(&Type::Bool, &cond_type) {
                 self.errors.add(
@@ -495,10 +519,23 @@ impl SemanticAnalyzer {
             }
         }
 
+        self.loop_depth += 1;
         self.analyze_statement(&while_stmt.body);
+        self.loop_depth -= 1;
     }
 
-    /// Анализ for
+    fn analyze_switch(&mut self, switch_stmt: &SwitchStmt) {
+        let _expr_type = self.analyze_expression(&switch_stmt.expression);
+
+        for case in &switch_stmt.cases {
+            self.analyze_statement(&case.body);
+        }
+
+        if let Some(default) = &switch_stmt.default {
+            self.analyze_statement(default);
+        }
+    }
+
     fn analyze_for(&mut self, for_stmt: &ForStmt) {
         self.symbol_table.enter_scope();
 
@@ -508,7 +545,6 @@ impl SemanticAnalyzer {
 
         if let Some(condition) = &for_stmt.condition {
             let cond_type = self.analyze_expression(condition);
-
             if let Some(cond_type) = cond_type {
                 if !self.type_checker.is_compatible(&Type::Bool, &cond_type) {
                     self.errors.add(
@@ -530,7 +566,9 @@ impl SemanticAnalyzer {
             self.analyze_expression(update);
         }
 
+        self.loop_depth += 1;
         self.analyze_statement(&for_stmt.body);
+        self.loop_depth -= 1;
 
         self.symbol_table.exit_scope();
     }
@@ -610,6 +648,7 @@ impl SemanticAnalyzer {
             Expression::Call(call) => self.analyze_call(call),
             Expression::StructAccess(access) => self.analyze_struct_access(access),
             Expression::Grouped(grouped) => self.analyze_expression(&grouped.expr),
+            Expression::ArrayAccess(access) => self.analyze_array_access(access),
         };
 
         result
@@ -869,6 +908,30 @@ impl SemanticAnalyzer {
                         )
                         .with_types(Type::Struct("?".to_string()), typ)
                         .with_suggestion("Объект должен иметь тип структуры".to_string()),
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    fn analyze_array_access(&mut self, access: &ArrayAccessExpr) -> Option<Type> {
+        let array_type = self.analyze_expression(&access.array);
+        let _index_type = self.analyze_expression(&access.index);
+
+        if let Some(arr_typ) = array_type {
+            match arr_typ {
+                Type::Array(inner, _) => Some(*inner),
+                _ => {
+                    self.errors.add(
+                        SemanticError::new(
+                            SemanticErrorKind::TypeMismatch,
+                            access.node.position(),
+                            format!("Индексация возможна только для массивов"),
+                        )
+                        .with_suggestion("Объект должен иметь тип массива".to_string()),
                     );
                     None
                 }

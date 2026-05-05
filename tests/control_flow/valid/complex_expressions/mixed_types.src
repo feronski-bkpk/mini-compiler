@@ -1,0 +1,5 @@
+fn main() -> int {
+    int x = 5;
+    int z = x + 10;
+    return z;
+}

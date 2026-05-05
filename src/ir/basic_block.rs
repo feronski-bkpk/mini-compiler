@@ -219,6 +219,18 @@ impl IRStatistics {
                         IRInstruction::CmpLe(_, _, _) => "CMP_LE",
                         IRInstruction::CmpGt(_, _, _) => "CMP_GT",
                         IRInstruction::CmpGe(_, _, _) => "CMP_GE",
+                        IRInstruction::CmpEqF(_, _, _) => "CMP_EQF",
+                        IRInstruction::CmpNeF(_, _, _) => "CMP_NEF",
+                        IRInstruction::CmpLtF(_, _, _) => "CMP_LTF",
+                        IRInstruction::CmpLeF(_, _, _) => "CMP_LEF",
+                        IRInstruction::CmpGtF(_, _, _) => "CMP_GTF",
+                        IRInstruction::CmpGeF(_, _, _) => "CMP_GEF",
+                        IRInstruction::CmpLtU(_, _, _) => "CMP_LTU",
+                        IRInstruction::CmpLeU(_, _, _) => "CMP_LEU",
+                        IRInstruction::CmpGtU(_, _, _) => "CMP_GTU",
+                        IRInstruction::CmpGeU(_, _, _) => "CMP_GEU",
+                        IRInstruction::IntToFloat(_, _) => "INT_TO_FLOAT",
+                        IRInstruction::FloatToInt(_, _) => "FLOAT_TO_INT",
                         IRInstruction::Load(_, _) => "LOAD",
                         IRInstruction::Store(_, _) => "STORE",
                         IRInstruction::Alloca(_, _) => "ALLOCA",
@@ -232,6 +244,8 @@ impl IRStatistics {
                         IRInstruction::Return(_) => "RETURN",
                         IRInstruction::Param(_, _) => "PARAM",
                         IRInstruction::Move(_, _) => "MOVE",
+                        IRInstruction::ArrayLoad(_, _, _) => "ARRAY_LOAD",
+                        IRInstruction::ArrayStore(_, _, _) => "ARRAY_STORE",
                     };
 
                     *stats
@@ -261,11 +275,25 @@ impl IRStatistics {
                         | IRInstruction::CmpLe(dest, _, _)
                         | IRInstruction::CmpGt(dest, _, _)
                         | IRInstruction::CmpGe(dest, _, _)
+                        | IRInstruction::CmpEqF(dest, _, _)
+                        | IRInstruction::CmpNeF(dest, _, _)
+                        | IRInstruction::CmpLtF(dest, _, _)
+                        | IRInstruction::CmpLeF(dest, _, _)
+                        | IRInstruction::CmpGtF(dest, _, _)
+                        | IRInstruction::CmpGeF(dest, _, _)
+                        | IRInstruction::CmpLtU(dest, _, _)
+                        | IRInstruction::CmpLeU(dest, _, _)
+                        | IRInstruction::CmpGtU(dest, _, _)
+                        | IRInstruction::CmpGeU(dest, _, _)
+                        | IRInstruction::IntToFloat(dest, _)
+                        | IRInstruction::FloatToInt(dest, _)
                         | IRInstruction::Load(dest, _)
                         | IRInstruction::Alloca(dest, _)
                         | IRInstruction::Gep(dest, _, _)
                         | IRInstruction::Call(dest, _, _)
-                        | IRInstruction::Move(dest, _) => {
+                        | IRInstruction::Move(dest, _)
+                        | IRInstruction::ArrayLoad(dest, _, _)
+                        | IRInstruction::ArrayStore(_, _, dest) => {
                             if let Operand::Temporary(name) = dest {
                                 temp_set.insert(name.clone());
                             }

@@ -1,30 +1,29 @@
 # Program: MiniC IR
-# Generated: 2026-04-20 11:16:23
+# Generated: 2026-05-04 13:20:21
 
 function main: int ()
   locals:
     i: int
     sum: int
 
-  main_1:
-    t1 = MOVE 0
-    i = MOVE t1
-    t2 = MOVE 0
+  L1_001_entry:
+    i = MOVE 0
+    sum = MOVE 0
+    JUMP L1_002_while_cond
+
+  L1_002_while_cond:
+    t1 = CMP_LT i, 5
+    JUMP_IF_NOT t1, L1_004_while_end
+    JUMP L1_003_while_body
+
+  L1_003_while_body:
+    t2 = ADD sum, i
     sum = MOVE t2
+    t3 = ADD i, 1
+    i = MOVE t3
+    JUMP L1_002_while_cond
 
-  main_2:
-    t3 = CMP_LT i, 5
-    JUMP_IF_NOT t3, main_4
-    JUMP main_3
-
-  main_3:
-    t4 = ADD sum, i
-    sum = MOVE t4
-    t5 = ADD i, 1
-    i = MOVE t5
-    JUMP main_2
-
-  main_4:
+  L1_004_while_end:
     RETURN sum
 
 
