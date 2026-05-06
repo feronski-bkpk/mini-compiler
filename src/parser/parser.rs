@@ -638,7 +638,7 @@ impl Parser {
 
         let var_type = self.parse_type()?;
 
-        let name = match self.advance() {
+                let name = match self.advance() {
             token if matches!(token.kind, TokenKind::Identifier(_)) => token.lexeme.clone(),
             token => {
                 return Err(
@@ -648,6 +648,18 @@ impl Parser {
                 );
             }
         };
+
+        if self.check(&TokenKind::LBracket) {
+            self.advance();
+            if let TokenKind::IntLiteral(_) = self.peek().kind {
+                self.advance();
+            }
+            self.consume(
+                &TokenKind::RBracket,
+                ParseErrorKind::MissingCloseParen,
+                "ожидалось ']' после размера массива",
+            )?;
+        }
 
         let initializer = if self.match_token(&TokenKind::Eq) {
             let expr = self.parse_expression()?;

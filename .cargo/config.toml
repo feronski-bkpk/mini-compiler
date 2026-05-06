@@ -9,10 +9,6 @@ rustflags = ["-C", "target-feature=+crt-static"]
 linker = "link.exe"
 ar = "lib.exe"
 
-[target.x86_64-unknown-linux-gnu]
-linker = "gcc"
-rustflags = ["-C", "link-arg=-no-pie"]
-
 [target.x86_64-unknown-linux-musl]
 linker = "gcc"
 rustflags = ["-C", "target-feature=+crt-static"]
