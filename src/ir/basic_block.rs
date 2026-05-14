@@ -246,6 +246,7 @@ impl IRStatistics {
                         IRInstruction::Move(_, _) => "MOVE",
                         IRInstruction::ArrayLoad(_, _, _) => "ARRAY_LOAD",
                         IRInstruction::ArrayStore(_, _, _) => "ARRAY_STORE",
+                        IRInstruction::CmpJmp(_, _, _, _, _, _, _) => "CMP_JMP",
                     };
 
                     *stats
@@ -298,6 +299,7 @@ impl IRStatistics {
                                 temp_set.insert(name.clone());
                             }
                         }
+                        IRInstruction::CmpJmp(_, _, _, _, _, _, _) => {}
                         _ => {}
                     }
                 }

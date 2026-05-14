@@ -1,5 +1,5 @@
 # Program: MiniC IR
-# Generated: 2026-05-04 13:20:21
+# Generated: 2026-05-14 09:03:46
 
 function main: int ()
   L1_001_entry:
@@ -10,19 +10,17 @@ function main: int ()
 
 function factorial: int (int n)
   L2_001_entry:
-    t1 = CMP_LE n, 1
-    JUMP_IF_NOT t1, L2_003_else
-    JUMP L2_002_then
+    CMP_JMP n, 1 -> L2_002_then else L2_003_else (cmp/jle)
 
   L2_002_then:
     RETURN 1
 
   L2_003_else:
-    t2 = SUB n, 1
-    PARAM 0, t2
-    t3 = CALL factorial, t2
-    t4 = MUL n, t3
-    RETURN t4
+    t1 = SUB n, 1
+    PARAM 0, t1
+    t2 = CALL factorial, t1
+    t3 = MUL n, t2
+    RETURN t3
 
   L2_004_endif:
 

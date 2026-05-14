@@ -527,7 +527,6 @@ impl IRGenerator {
             let old = std::mem::replace(cb, self.create_block("cond_cont"));
             ab.push(old);
         }
-        let cond = self.generate_expression(&is.condition, cb, ab);
         let mut tb = self.create_block("then");
         let mut eb_opt = if is.else_branch.is_some() {
             Some(self.create_block("else"))
@@ -538,12 +537,13 @@ impl IRGenerator {
         let tl = Operand::Label(tb.label.clone());
         let el = eb_opt.as_ref().map(|b| Operand::Label(b.label.clone()));
         let ml = Operand::Label(mb.label.clone());
+        
         if let Some(ref e) = el {
-            cb.add_instruction(IRInstruction::JumpIfNot(cond, e.clone()));
+            self.generate_conditional_jump(&is.condition, tl.clone(), e.clone(), cb, ab);
         } else {
-            cb.add_instruction(IRInstruction::JumpIfNot(cond, ml.clone()));
+            self.generate_conditional_jump(&is.condition, tl.clone(), ml.clone(), cb, ab);
         }
-        cb.add_instruction(IRInstruction::Jump(tl.clone()));
+        
         self.generate_statement(&is.then_branch, &mut tb, ab);
         if !tb.is_terminator() {
             tb.add_instruction(IRInstruction::Jump(ml.clone()));
@@ -576,13 +576,9 @@ impl IRGenerator {
         self.break_labels.push(mb.label.clone());
         self.continue_labels.push(condb.label.clone());
         cb.add_instruction(IRInstruction::Jump(cl.clone()));
-        let cond = self.generate_expression(&ws.condition, &mut condb, ab);
-        if condb.is_terminator() {
-            let old = std::mem::replace(&mut condb, self.create_block("while_cond_cont"));
-            ab.push(old);
-        }
-        condb.add_instruction(IRInstruction::JumpIfNot(cond, ml.clone()));
-        condb.add_instruction(IRInstruction::Jump(bl.clone()));
+        
+        self.generate_conditional_jump(&ws.condition, bl.clone(), ml.clone(), &mut condb, ab);
+        
         ab.push(condb);
         self.generate_statement(&ws.body, &mut bodyb, ab);
         if !bodyb.is_terminator() {
@@ -819,5 +815,58 @@ impl IRGenerator {
             ab.push(cb2);
         }
         mb
+    }
+
+    /// Генерирует прямой условный переход: cmp + jCC label
+    /// вместо Cmp* + JumpIf/JumpIfNot
+    fn generate_conditional_jump(
+        &mut self,
+        condition: &Expression,
+        true_label: Operand,
+        false_label: Operand,
+        current_block: &mut BasicBlock,
+        all_blocks: &mut Vec<BasicBlock>,
+    ) {
+        match condition {
+            Expression::Binary(b) if matches!(b.operator,
+                BinaryOp::Gt | BinaryOp::Lt | BinaryOp::Ge | BinaryOp::Le |
+                BinaryOp::Eq | BinaryOp::Ne
+            ) => {
+                let left = self.generate_expression(&b.left, current_block, all_blocks);
+                let right = self.generate_expression(&b.right, current_block, all_blocks);
+                let is_float = self.is_float_operand(&b.left) || self.is_float_operand(&b.right);
+                
+                let (cmp_instr, jcc_true) = match (b.operator, is_float) {
+                    (BinaryOp::Gt, false) => ("cmp", "jg"),
+                    (BinaryOp::Gt, true) => ("ucomisd", "ja"),
+                    (BinaryOp::Lt, false) => ("cmp", "jl"),
+                    (BinaryOp::Lt, true) => ("ucomisd", "jb"),
+                    (BinaryOp::Ge, false) => ("cmp", "jge"),
+                    (BinaryOp::Ge, true) => ("ucomisd", "jae"),
+                    (BinaryOp::Le, false) => ("cmp", "jle"),
+                    (BinaryOp::Le, true) => ("ucomisd", "jbe"),
+                    (BinaryOp::Eq, false) => ("cmp", "je"),
+                    (BinaryOp::Eq, true) => ("ucomisd", "je"),
+                    (BinaryOp::Ne, false) => ("cmp", "jne"),
+                    (BinaryOp::Ne, true) => ("ucomisd", "jne"),
+                    _ => unreachable!(),
+                };
+
+                current_block.add_instruction(IRInstruction::CmpJmp(
+                    left,
+                    right,
+                    true_label,
+                    false_label,
+                    cmp_instr.to_string(),
+                    jcc_true.to_string(),
+                    is_float,
+                ));
+            }
+            _ => {
+                let cond = self.generate_expression(condition, current_block, all_blocks);
+                current_block.add_instruction(IRInstruction::JumpIfNot(cond, false_label));
+                current_block.add_instruction(IRInstruction::Jump(true_label));
+            }
+        }
     }
 }

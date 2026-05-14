@@ -134,8 +134,15 @@ fn test_stack_frame_allocation() {
 
     println!("=== Сгенерированный ассемблер ===\n{}", result.assembly);
 
-    assert!(result.assembly.contains("sub rsp,") || result.frame_size > 0);
     println!("Размер фрейма: {} байт", result.frame_size);
+    println!("Инструкций: {}", result.instruction_count);
+
+    assert!(result.assembly.contains("push rbp"), "Нет пролога");
+    assert!(result.assembly.contains("ret"), "Нет ret");
+
+    if result.frame_size > 0 {
+        assert!(result.assembly.contains("sub rsp,"), "Фрейм > 0 но нет sub rsp");
+    }
 }
 
 #[test]

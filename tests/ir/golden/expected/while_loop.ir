@@ -1,5 +1,5 @@
 # Program: MiniC IR
-# Generated: 2026-05-04 13:20:21
+# Generated: 2026-05-14 09:03:46
 
 function main: int ()
   locals:
@@ -12,15 +12,13 @@ function main: int ()
     JUMP L1_002_while_cond
 
   L1_002_while_cond:
-    t1 = CMP_LT i, 5
-    JUMP_IF_NOT t1, L1_004_while_end
-    JUMP L1_003_while_body
+    CMP_JMP i, 5 -> L1_003_while_body else L1_004_while_end (cmp/jl)
 
   L1_003_while_body:
-    t2 = ADD sum, i
-    sum = MOVE t2
-    t3 = ADD i, 1
-    i = MOVE t3
+    t1 = ADD sum, i
+    sum = MOVE t1
+    t2 = ADD i, 1
+    i = MOVE t2
     JUMP L1_002_while_cond
 
   L1_004_while_end:

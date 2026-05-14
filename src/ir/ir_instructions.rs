@@ -196,6 +196,8 @@ pub enum IRInstruction {
 
     IntToFloat(Operand, Operand),
     FloatToInt(Operand, Operand),
+
+    CmpJmp(Operand, Operand, Operand, Operand, String, String, bool),
 }
 
 impl IRInstruction {
@@ -249,7 +251,59 @@ impl IRInstruction {
             IRInstruction::Move(_, s) => vec![s],
             IRInstruction::IntToFloat(_, s) => vec![s],
             IRInstruction::FloatToInt(_, s) => vec![s],
+            IRInstruction::CmpJmp(l, r, _, _, _, _, _) => vec![l, r],
         }
+    }
+
+    /// Возвращает ВСЕ операнды, включая destination
+    pub fn all_operands(&self) -> Vec<&Operand> {
+        let mut ops = self.operands();
+        match self {
+            IRInstruction::Add(d, _, _)
+            | IRInstruction::Sub(d, _, _)
+            | IRInstruction::Mul(d, _, _)
+            | IRInstruction::Div(d, _, _)
+            | IRInstruction::Mod(d, _, _)
+            | IRInstruction::Neg(d, _)
+            | IRInstruction::And(d, _, _)
+            | IRInstruction::Or(d, _, _)
+            | IRInstruction::Not(d, _)
+            | IRInstruction::Xor(d, _, _)
+            | IRInstruction::CmpEq(d, _, _)
+            | IRInstruction::CmpNe(d, _, _)
+            | IRInstruction::CmpLt(d, _, _)
+            | IRInstruction::CmpLe(d, _, _)
+            | IRInstruction::CmpGt(d, _, _)
+            | IRInstruction::CmpGe(d, _, _)
+            | IRInstruction::CmpEqF(d, _, _)
+            | IRInstruction::CmpNeF(d, _, _)
+            | IRInstruction::CmpLtF(d, _, _)
+            | IRInstruction::CmpLeF(d, _, _)
+            | IRInstruction::CmpGtF(d, _, _)
+            | IRInstruction::CmpGeF(d, _, _)
+            | IRInstruction::CmpLtU(d, _, _)
+            | IRInstruction::CmpLeU(d, _, _)
+            | IRInstruction::CmpGtU(d, _, _)
+            | IRInstruction::CmpGeU(d, _, _)
+            | IRInstruction::Load(d, _)
+            | IRInstruction::Alloca(d, _)
+            | IRInstruction::Gep(d, _, _)
+            | IRInstruction::Move(d, _)
+            | IRInstruction::IntToFloat(d, _)
+            | IRInstruction::FloatToInt(d, _)
+            | IRInstruction::ArrayLoad(d, _, _) => {
+                ops.push(d);
+            }
+            IRInstruction::Store(_, _) => {}
+            IRInstruction::Phi(d, _) => {
+                ops.push(d);
+            }
+            IRInstruction::Call(d, _, _) => {
+                ops.push(d);
+            }
+            _ => {}
+        }
+        ops
     }
 
     pub fn is_terminator(&self) -> bool {
@@ -258,6 +312,7 @@ impl IRInstruction {
             IRInstruction::Jump(_)
                 | IRInstruction::JumpIf(_, _)
                 | IRInstruction::JumpIfNot(_, _)
+                | IRInstruction::CmpJmp(_, _, _, _, _, _, _)
                 | IRInstruction::Return(_)
         )
     }
@@ -376,6 +431,9 @@ impl fmt::Display for IRInstruction {
             IRInstruction::Move(d, s) => write!(f, "{} = MOVE {}", d, s),
             IRInstruction::IntToFloat(d, s) => write!(f, "{} = INT_TO_FLOAT {}", d, s),
             IRInstruction::FloatToInt(d, s) => write!(f, "{} = FLOAT_TO_INT {}", d, s),
+            IRInstruction::CmpJmp(l, r, tl, fl, cmp, jcc, _) => {
+                write!(f, "CMP_JMP {}, {} -> {} else {} ({}/{})", l, r, tl, fl, cmp, jcc)
+            }
         }
     }
 }

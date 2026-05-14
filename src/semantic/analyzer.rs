@@ -265,12 +265,24 @@ impl SemanticAnalyzer {
                                     init_type.clone(),
                                     var.node.position(),
                                 );
-
                                 self.symbol_table.update_symbol(&var.name, &new_symbol);
                             }
                         }
-                    } else {
-                        self.analyze_variable_decl(var);
+                    } else if let Some(initializer) = &var.initializer {
+                        let init_type = self.analyze_expression(initializer);
+                        let var_type = Type::from_ast(&var.var_type);
+                        if let Some(init_type) = init_type {
+                            if !self.type_checker.is_assignable(&var_type, &init_type) {
+                                self.errors.add(
+                                    SemanticError::new(
+                                        SemanticErrorKind::AssignmentTypeMismatch,
+                                        var.node.position(),
+                                        format!("Несоответствие типов при инициализации глобальной переменной '{}'", var.name),
+                                    )
+                                    .with_types(var_type, init_type),
+                                );
+                            }
+                        }
                     }
                 }
             }

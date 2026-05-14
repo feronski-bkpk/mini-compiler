@@ -1,123 +1,71 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+//! Linear Scan регистровый аллокатор для x86-64
+//!
+//! Реализует алгоритм linear scan для распределения регистров
+//! под переменные и временные значения вместо хранения в стеке.
+//! Поддерживает spill при нехватке регистров.
+
+use std::collections::HashMap;
 use std::fmt;
 
-/// Регистры x86-64
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Регистры x86-64, доступные для аллокации
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Register {
-    RAX,
     RBX,
-    RCX,
-    RDX,
-    RSI,
-    RDI,
-    RBP,
-    RSP,
-    R8,
-    R9,
-    R10,
-    R11,
     R12,
     R13,
     R14,
     R15,
-    EAX,
-    EBX,
-    ECX,
-    EDX,
-    ESI,
-    EDI,
-    EBP,
-    ESP,
-    AX,
-    BX,
-    CX,
-    DX,
-    SI,
-    DI,
-    BP,
-    SP,
-    AL,
-    BL,
-    CL,
-    DL,
-    SIL,
-    DIL,
-    BPL,
-    SPL,
+    R8,
+    R9,
+    R10,
+    R11,
+    RDI,
+    RSI,
+    RDX,
+    RCX,
 }
 
 impl Register {
     pub fn name(&self) -> &'static str {
         match self {
-            Register::RAX => "rax",
             Register::RBX => "rbx",
-            Register::RCX => "rcx",
-            Register::RDX => "rdx",
-            Register::RSI => "rsi",
-            Register::RDI => "rdi",
-            Register::RBP => "rbp",
-            Register::RSP => "rsp",
-            Register::R8 => "r8",
-            Register::R9 => "r9",
-            Register::R10 => "r10",
-            Register::R11 => "r11",
             Register::R12 => "r12",
             Register::R13 => "r13",
             Register::R14 => "r14",
             Register::R15 => "r15",
-            Register::EAX => "eax",
-            Register::EBX => "ebx",
-            Register::ECX => "ecx",
-            Register::EDX => "edx",
-            Register::ESI => "esi",
-            Register::EDI => "edi",
-            Register::EBP => "ebp",
-            Register::ESP => "esp",
-            Register::AX => "ax",
-            Register::BX => "bx",
-            Register::CX => "cx",
-            Register::DX => "dx",
-            Register::SI => "si",
-            Register::DI => "di",
-            Register::BP => "bp",
-            Register::SP => "sp",
-            Register::AL => "al",
-            Register::BL => "bl",
-            Register::CL => "cl",
-            Register::DL => "dl",
-            Register::SIL => "sil",
-            Register::DIL => "dil",
-            Register::BPL => "bpl",
-            Register::SPL => "spl",
+            Register::R8 => "r8",
+            Register::R9 => "r9",
+            Register::R10 => "r10",
+            Register::R11 => "r11",
+            Register::RDI => "rdi",
+            Register::RSI => "rsi",
+            Register::RDX => "rdx",
+            Register::RCX => "rcx",
         }
-    }
-
-    pub fn is_caller_saved(&self) -> bool {
-        matches!(
-            self,
-            Register::RAX
-                | Register::RCX
-                | Register::RDX
-                | Register::RSI
-                | Register::RDI
-                | Register::R8
-                | Register::R9
-                | Register::R10
-                | Register::R11
-        )
     }
 
     pub fn is_callee_saved(&self) -> bool {
         matches!(
             self,
-            Register::RBX
-                | Register::RBP
-                | Register::RSP
-                | Register::R12
-                | Register::R13
-                | Register::R14
-                | Register::R15
+            Register::RBX | Register::R12 | Register::R13 | Register::R14 | Register::R15
         )
+    }
+
+    pub fn all_allocatable() -> Vec<Register> {
+        vec![
+            Register::RBX,
+            Register::R12,
+            Register::R13,
+            Register::R14,
+            Register::R15,
+            Register::R8,
+            Register::R9,
+            Register::R10,
+            Register::R11,
+            Register::RDI,
+            Register::RSI,
+            Register::RCX,
+        ]
     }
 }
 
@@ -127,323 +75,276 @@ impl fmt::Display for Register {
     }
 }
 
-/// Информация о временной переменной
+/// Интервал жизни переменной
 #[derive(Debug, Clone)]
-pub struct LiveRange {
+pub struct LiveInterval {
+    pub var_name: String,
     pub start: usize,
     pub end: usize,
-    pub temp_name: String,
-    pub size: usize,
+    pub spilled: bool,
+    pub spill_slot: Option<i32>,
 }
 
-/// Граф конфликтов для распределения регистров
-#[derive(Debug)]
-pub struct ConflictGraph {
-    pub nodes: HashMap<String, HashSet<String>>,
-    pub live_ranges: Vec<LiveRange>,
-}
-
-impl ConflictGraph {
-    pub fn new() -> Self {
+impl LiveInterval {
+    pub fn new(var_name: String, start: usize, end: usize) -> Self {
         Self {
-            nodes: HashMap::new(),
-            live_ranges: Vec::new(),
+            var_name,
+            start,
+            end,
+            spilled: false,
+            spill_slot: None,
         }
     }
-
-    /// Добавляет конфликт между двумя временными переменными
-    pub fn add_conflict(&mut self, t1: &str, t2: &str) {
-        self.nodes
-            .entry(t1.to_string())
-            .or_insert_with(HashSet::new)
-            .insert(t2.to_string());
-        self.nodes
-            .entry(t2.to_string())
-            .or_insert_with(HashSet::new)
-            .insert(t1.to_string());
-    }
-
-    /// Проверяет, конфликтуют ли две переменные
-    pub fn has_conflict(&self, t1: &str, t2: &str) -> bool {
-        self.nodes
-            .get(t1)
-            .map_or(false, |neighbors| neighbors.contains(t2))
-    }
-
-    /// Возвращает степень узла (количество конфликтов)
-    pub fn degree(&self, node: &str) -> usize {
-        self.nodes.get(node).map_or(0, |neighbors| neighbors.len())
-    }
 }
 
-/// Расширенный аллокатор регистров с графом конфликтов
+/// Результат аллокации для одной переменной
+#[derive(Debug, Clone)]
+pub enum Allocation {
+    Register(Register),
+    Stack(i32),
+}
+
+/// Основной аллокатор регистров на базе linear scan
 pub struct AdvancedRegisterAllocator {
-    available_registers: Vec<Register>,
-    allocated: HashMap<String, Register>,
-    reverse_allocated: HashMap<Register, String>,
-    used_registers: Vec<String>,
-    next_index: usize,
-    conflict_graph: ConflictGraph,
-    live_ranges: Vec<LiveRange>,
-    spill_count: usize,
-    allocation_attempts: usize,
+    free_registers: Vec<Register>,
+    allocation: HashMap<String, Allocation>,
+    active: Vec<LiveInterval>,
+    intervals: Vec<LiveInterval>,
+    spill_counter: i32,
+    stats: RegisterStatistics,
 }
 
 impl AdvancedRegisterAllocator {
     pub fn new() -> Self {
-        let available = vec![
-            Register::RAX,
-            Register::RCX,
-            Register::RDX,
-            Register::RSI,
-            Register::RDI,
-            Register::R8,
-            Register::R9,
-            Register::R10,
-            Register::R11,
-        ];
-
         Self {
-            available_registers: available,
-            allocated: HashMap::new(),
-            reverse_allocated: HashMap::new(),
-            used_registers: Vec::new(),
-            next_index: 0,
-            conflict_graph: ConflictGraph::new(),
-            live_ranges: Vec::new(),
-            spill_count: 0,
-            allocation_attempts: 0,
+            free_registers: Register::all_allocatable(),
+            allocation: HashMap::new(),
+            active: Vec::new(),
+            intervals: Vec::new(),
+            spill_counter: 0,
+            stats: RegisterStatistics::default(),
         }
     }
 
-    /// Анализирует диапазоны жизни временных переменных
     pub fn analyze_live_ranges(&mut self, instructions: &[crate::ir::IRInstruction]) {
-        self.live_ranges.clear();
+        self.intervals.clear();
+        self.allocation.clear();
+        self.active.clear();
+        self.spill_counter = 0;
 
-        let mut first_use: HashMap<String, usize> = HashMap::new();
+        let mut first_def: HashMap<String, usize> = HashMap::new();
         let mut last_use: HashMap<String, usize> = HashMap::new();
 
         for (idx, instr) in instructions.iter().enumerate() {
-            for op in instr.operands() {
-                if let crate::ir::Operand::Temporary(name) = op {
-                    first_use.entry(name.clone()).or_insert(idx);
+            let dests: Vec<String> = match instr {
+                crate::ir::IRInstruction::Add(d, _, _)
+                | crate::ir::IRInstruction::Sub(d, _, _)
+                | crate::ir::IRInstruction::Mul(d, _, _)
+                | crate::ir::IRInstruction::Div(d, _, _)
+                | crate::ir::IRInstruction::Mod(d, _, _)
+                | crate::ir::IRInstruction::And(d, _, _)
+                | crate::ir::IRInstruction::Or(d, _, _)
+                | crate::ir::IRInstruction::Xor(d, _, _)
+                | crate::ir::IRInstruction::Not(d, _)
+                | crate::ir::IRInstruction::Neg(d, _)
+                | crate::ir::IRInstruction::Move(d, _)
+                | crate::ir::IRInstruction::Load(d, _)
+                | crate::ir::IRInstruction::Call(d, _, _)
+                | crate::ir::IRInstruction::IntToFloat(d, _)
+                | crate::ir::IRInstruction::FloatToInt(d, _)
+                | crate::ir::IRInstruction::Alloca(d, _)
+                | crate::ir::IRInstruction::ArrayLoad(d, _, _)
+                | crate::ir::IRInstruction::CmpEq(d, _, _)
+                | crate::ir::IRInstruction::CmpNe(d, _, _)
+                | crate::ir::IRInstruction::CmpLt(d, _, _)
+                | crate::ir::IRInstruction::CmpLe(d, _, _)
+                | crate::ir::IRInstruction::CmpGt(d, _, _)
+                | crate::ir::IRInstruction::CmpGe(d, _, _)
+                | crate::ir::IRInstruction::CmpEqF(d, _, _)
+                | crate::ir::IRInstruction::CmpNeF(d, _, _)
+                | crate::ir::IRInstruction::CmpLtF(d, _, _)
+                | crate::ir::IRInstruction::CmpLeF(d, _, _)
+                | crate::ir::IRInstruction::CmpGtF(d, _, _)
+                | crate::ir::IRInstruction::CmpGeF(d, _, _)
+                | crate::ir::IRInstruction::CmpLtU(d, _, _)
+                | crate::ir::IRInstruction::CmpLeU(d, _, _)
+                | crate::ir::IRInstruction::CmpGtU(d, _, _)
+                | crate::ir::IRInstruction::CmpGeU(d, _, _) => {
+                    vec![Self::operand_name_to_string(d)]
+                }
+                _ => vec![],
+            };
+
+            for name in dests {
+                if !name.is_empty() {
+                    first_def.entry(name.clone()).or_insert(idx);
                     last_use.insert(name.clone(), idx);
                 }
             }
 
-            match instr {
-                crate::ir::IRInstruction::Add(dest, _, _)
-                | crate::ir::IRInstruction::Sub(dest, _, _)
-                | crate::ir::IRInstruction::Mul(dest, _, _)
-                | crate::ir::IRInstruction::Div(dest, _, _)
-                | crate::ir::IRInstruction::Mod(dest, _, _)
-                | crate::ir::IRInstruction::Move(dest, _)
-                | crate::ir::IRInstruction::Load(dest, _)
-                | crate::ir::IRInstruction::Call(dest, _, _) => {
-                    if let crate::ir::Operand::Temporary(name) = dest {
-                        first_use.entry(name.clone()).or_insert(idx);
-                        last_use.insert(name.clone(), idx);
-                    }
+            for op in instr.operands() {
+                let name = Self::operand_name_to_string(op);
+                if !name.is_empty() {
+                    first_def.entry(name.clone()).or_insert(idx);
+                    last_use.insert(name.clone(), idx);
                 }
-                _ => {}
             }
         }
 
-        for (name, start) in first_use {
-            if let Some(end) = last_use.get(&name) {
-                self.live_ranges.push(LiveRange {
-                    start,
-                    end: *end,
-                    temp_name: name,
-                    size: 8,
-                });
-            }
+        for (name, start) in first_def {
+            let end = last_use.get(&name).copied().unwrap_or(start);
+            self.intervals.push(LiveInterval::new(name, start, end));
         }
 
-        self.build_conflict_graph();
+        self.intervals.sort_by_key(|i| i.start);
     }
 
-    /// Строит граф конфликтов на основе диапазонов жизни
-    fn build_conflict_graph(&mut self) {
-        self.conflict_graph = ConflictGraph::new();
-
-        for i in 0..self.live_ranges.len() {
-            for j in i + 1..self.live_ranges.len() {
-                let range1 = &self.live_ranges[i];
-                let range2 = &self.live_ranges[j];
-
-                if range1.start <= range2.end && range2.start <= range1.end {
-                    self.conflict_graph
-                        .add_conflict(&range1.temp_name, &range2.temp_name);
-                }
-            }
+    fn operand_name_to_string(op: &crate::ir::Operand) -> String {
+        match op {
+            crate::ir::Operand::Temporary(name) => name.clone(),
+            crate::ir::Operand::Variable(name) => name.clone(),
+            _ => String::new(),
         }
     }
 
-    /// Алгоритм раскраски графа (упрощенный)
-    pub fn graph_coloring_allocate(&mut self) -> bool {
-        self.allocation_attempts += 1;
-
-        let mut nodes: Vec<String> = self.conflict_graph.nodes.keys().cloned().collect();
-        nodes.sort_by(|a, b| {
-            self.conflict_graph
-                .degree(b)
-                .cmp(&self.conflict_graph.degree(a))
-        });
-
-        let mut colors: HashMap<String, Option<Register>> = HashMap::new();
-
-        for node in &nodes {
-            let mut neighbor_colors = HashSet::new();
-            if let Some(neighbors) = self.conflict_graph.nodes.get(node) {
-                for neighbor in neighbors {
-                    if let Some(Some(reg)) = colors.get(neighbor) {
-                        neighbor_colors.insert(*reg);
-                    }
-                }
-            }
-
-            let mut assigned = None;
-            for reg in &self.available_registers {
-                if !neighbor_colors.contains(reg) {
-                    assigned = Some(*reg);
-                    break;
-                }
-            }
-
-            if let Some(reg) = assigned {
-                colors.insert(node.clone(), Some(reg));
-            } else {
-                self.spill_count += 1;
-                colors.insert(node.clone(), None);
-            }
-        }
-
-        for (node, color) in colors {
-            if let Some(reg) = color {
-                self.allocated.insert(node.clone(), reg);
-                self.reverse_allocated.insert(reg, node);
-
-                let reg_name = reg.name().to_string();
-                if !self.used_registers.contains(&reg_name) {
-                    self.used_registers.push(reg_name);
-                }
-            }
-        }
-
-        self.spill_count == 0
-    }
-
-    /// Линейное сканирование (более простой алгоритм)
     pub fn linear_scan_allocate(&mut self) -> bool {
-        self.allocation_attempts += 1;
+        self.stats = RegisterStatistics::default();
+        self.stats.total_intervals = self.intervals.len();
 
-        let mut sorted_ranges = self.live_ranges.clone();
-        sorted_ranges.sort_by_key(|r| r.start);
+        for interval in self.intervals.clone() {
+            self.expire_old_intervals(interval.start);
 
-        let mut active: VecDeque<LiveRange> = VecDeque::new();
-        let mut free_registers: Vec<Register> = self.available_registers.clone();
-
-        for range in &sorted_ranges {
-            while let Some(active_range) = active.front() {
-                if active_range.end < range.start {
-                    if let Some(active_range) = active.pop_front() {
-                        if let Some(reg) = self.allocated.get(&active_range.temp_name) {
-                            free_registers.push(*reg);
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            if let Some(reg) = free_registers.pop() {
-                self.allocated.insert(range.temp_name.clone(), reg);
-                self.reverse_allocated.insert(reg, range.temp_name.clone());
-
-                let reg_name = reg.name().to_string();
-                if !self.used_registers.contains(&reg_name) {
-                    self.used_registers.push(reg_name);
-                }
-
-                active.push_back(range.clone());
+            if self.free_registers.is_empty() {
+                self.spill_at_interval(&interval);
             } else {
-                self.spill_count += 1;
-
-                if let Some(to_spill) = active.iter().max_by_key(|r| r.end) {
-                    let to_spill_name = to_spill.temp_name.clone();
-                    if let Some(reg) = self.allocated.remove(&to_spill_name) {
-                        free_registers.push(reg);
-                        self.reverse_allocated.remove(&reg);
-                    }
-                    return self.linear_scan_allocate();
-                }
+                let reg = self.free_registers.pop().unwrap();
+                self.allocation
+                    .insert(interval.var_name.clone(), Allocation::Register(reg));
+                self.active.push(interval);
+                self.stats.allocated_registers += 1;
             }
         }
 
-        self.spill_count == 0
+        self.stats.allocation_success = self.stats.spilled_intervals == 0;
+        self.stats.allocation_success
     }
 
-    /// Возвращает статистику использования регистров
-    pub fn statistics(&self) -> RegisterStatistics {
-        RegisterStatistics {
-            total_temporaries: self.live_ranges.len(),
-            allocated_registers: self.allocated.len(),
-            spilled_temporaries: self.spill_count,
-            allocation_attempts: self.allocation_attempts,
-            used_registers: self.used_registers.clone(),
-            conflict_graph_density: if self.conflict_graph.nodes.is_empty() {
-                0.0
+    fn expire_old_intervals(&mut self, position: usize) {
+        self.active.retain(|i| {
+            if i.end < position {
+                if let Some(Allocation::Register(reg)) = self.allocation.remove(&i.var_name) {
+                    self.free_registers.push(reg);
+                }
+                false
             } else {
-                let total_edges: usize = self.conflict_graph.nodes.values().map(|n| n.len()).sum();
-                total_edges as f64 / self.conflict_graph.nodes.len() as f64
-            },
+                true
+            }
+        });
+    }
+
+    fn spill_at_interval(&mut self, interval: &LiveInterval) {
+        if let Some(spill_idx) = self
+            .active
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, i)| i.end)
+            .map(|(idx, _)| idx)
+        {
+            let spill_interval = &self.active[spill_idx];
+
+            if spill_interval.end > interval.end {
+                if let Some(Allocation::Register(reg)) =
+                    self.allocation.remove(&spill_interval.var_name)
+                {
+                    let mut spilled = spill_interval.clone();
+                    spilled.spilled = true;
+                    self.spill_counter += 1;
+                    spilled.spill_slot = Some(-(self.spill_counter * 8));
+                    self.allocation.insert(
+                        spilled.var_name.clone(),
+                        Allocation::Stack(spilled.spill_slot.unwrap()),
+                    );
+                    self.allocation
+                        .insert(interval.var_name.clone(), Allocation::Register(reg));
+                    self.active.remove(spill_idx);
+                    self.active.push(interval.clone());
+                    self.stats.spilled_intervals += 1;
+                    self.stats.allocated_registers += 1;
+                    return;
+                }
+            }
         }
+
+        self.spill_counter += 1;
+        let slot = -(self.spill_counter * 8);
+        let mut spilled = interval.clone();
+        spilled.spilled = true;
+        spilled.spill_slot = Some(slot);
+        self.allocation
+            .insert(spilled.var_name.clone(), Allocation::Stack(slot));
+        self.active.push(spilled);
+        self.stats.spilled_intervals += 1;
+    }
+
+    pub fn get_allocation(&self, name: &str) -> Option<&Allocation> {
+        self.allocation.get(name)
     }
 
     pub fn reset(&mut self) {
-        self.allocated.clear();
-        self.reverse_allocated.clear();
-        self.next_index = 0;
-        self.spill_count = 0;
-        self.conflict_graph = ConflictGraph::new();
-        self.live_ranges.clear();
+        self.free_registers = Register::all_allocatable();
+        self.allocation.clear();
+        self.active.clear();
+        self.intervals.clear();
+        self.spill_counter = 0;
+        self.stats = RegisterStatistics::default();
     }
 
-    pub fn get_register_for_temp(&self, name: &str) -> Option<Register> {
-        self.allocated.get(name).copied()
+    pub fn statistics(&self) -> &RegisterStatistics {
+        &self.stats
     }
 
-    pub fn get_used_registers(&self) -> Vec<String> {
-        self.used_registers.clone()
+    pub fn used_callee_saved(&self) -> Vec<Register> {
+        let mut result = Vec::new();
+        for alloc in self.allocation.values() {
+            if let Allocation::Register(reg) = alloc {
+                if reg.is_callee_saved() && !result.contains(reg) {
+                    result.push(*reg);
+                }
+            }
+        }
+        result
     }
 }
 
-/// Статистика распределения регистров
-#[derive(Debug)]
+#[derive(Debug, Clone, Default)]
 pub struct RegisterStatistics {
-    pub total_temporaries: usize,
+    pub total_intervals: usize,
     pub allocated_registers: usize,
-    pub spilled_temporaries: usize,
-    pub allocation_attempts: usize,
-    pub used_registers: Vec<String>,
-    pub conflict_graph_density: f64,
+    pub spilled_intervals: usize,
+    pub allocation_success: bool,
 }
 
 impl fmt::Display for RegisterStatistics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "=== Register Allocation Statistics ===")?;
-        writeln!(f, "Total temporaries: {}", self.total_temporaries)?;
-        writeln!(f, "Allocated registers: {}", self.allocated_registers)?;
-        writeln!(f, "Spilled temporaries: {}", self.spilled_temporaries)?;
-        writeln!(f, "Allocation attempts: {}", self.allocation_attempts)?;
-        writeln!(f, "Used registers: {:?}", self.used_registers)?;
+        writeln!(f, "=== Linear Scan Register Allocation ===")?;
+        writeln!(f, "Total intervals: {}", self.total_intervals)?;
+        writeln!(f, "Allocated to registers: {}", self.allocated_registers)?;
+        writeln!(f, "Spilled to stack: {}", self.spilled_intervals)?;
         writeln!(
             f,
-            "Conflict graph density: {:.2}",
-            self.conflict_graph_density
+            "Success: {}",
+            if self.allocation_success {
+                "YES (no spills)"
+            } else {
+                "NO (spills occurred)"
+            }
         )?;
-        writeln!(f, "Allocation success: {}", self.spilled_temporaries == 0)?;
         Ok(())
+    }
+}
+
+impl Default for AdvancedRegisterAllocator {
+    fn default() -> Self {
+        Self::new()
     }
 }

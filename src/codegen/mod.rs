@@ -19,7 +19,7 @@ pub use control_flow_generator::{ControlFlowType, LabelManager as ControlFlowLab
 pub use expression_generator::ExpressionPriority;
 pub use label_manager::LabelManager;
 pub use register_allocator::{
-    AdvancedRegisterAllocator, ConflictGraph, LiveRange, Register, RegisterStatistics,
+    AdvancedRegisterAllocator, Allocation, LiveInterval, Register, RegisterStatistics,
 };
 pub use stack_frame::StackFrameManager;
 pub use x86_generator::X86Generator;
@@ -30,13 +30,9 @@ use std::fmt;
 /// Результат генерации кода
 #[derive(Debug, Clone)]
 pub struct CodegenResult {
-    /// Сгенерированный ассемблерный код
     pub assembly: String,
-    /// Использованные регистры
     pub registers_used: Vec<String>,
-    /// Размер стекового фрейма в байтах
     pub frame_size: usize,
-    /// Количество сгенерированных инструкций
     pub instruction_count: usize,
 }
 
@@ -46,10 +42,8 @@ impl fmt::Display for CodegenResult {
     }
 }
 
-/// Основная функция для генерации ассемблерного кода
 pub fn generate_assembly(program: &ProgramIR, optimize: bool) -> CodegenResult {
     let mut generator = X86Generator::new();
-
     if optimize {
         let mut program_copy = program.clone();
         let _ = crate::ir::PeepholeOptimizer::optimize(&mut program_copy);
@@ -59,7 +53,6 @@ pub fn generate_assembly(program: &ProgramIR, optimize: bool) -> CodegenResult {
     }
 }
 
-/// Генерирует ассемблерный код и сохраняет в файл
 pub fn generate_to_file(
     program: &ProgramIR,
     output_path: &std::path::Path,

@@ -1,5 +1,5 @@
 # Program: MiniC IR
-# Generated: 2026-05-04 13:20:21
+# Generated: 2026-05-14 09:03:46
 
 function main: int ()
   locals:
@@ -8,9 +8,7 @@ function main: int ()
 
   L1_001_entry:
     x = MOVE 5
-    t1 = CMP_GT x, 0
-    JUMP_IF_NOT t1, L1_003_else
-    JUMP L1_002_then
+    CMP_JMP x, 0 -> L1_002_then else L1_003_else (cmp/jg)
 
   L1_002_then:
     y = MOVE 10

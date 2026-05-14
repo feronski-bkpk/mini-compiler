@@ -62,7 +62,9 @@ fn test_ir_if_statement() {
     for block in main.blocks.values() {
         for instr in &block.instructions {
             match instr {
-                IRInstruction::JumpIf(_, _) | IRInstruction::JumpIfNot(_, _) => {
+                IRInstruction::JumpIf(_, _)
+                | IRInstruction::JumpIfNot(_, _)
+                | IRInstruction::CmpJmp(_, _, _, _, _, _, _) => {
                     has_conditional_jump = true;
                     println!("Found conditional jump: {}", instr);
                 }
@@ -73,7 +75,7 @@ fn test_ir_if_statement() {
 
     assert!(
         has_conditional_jump,
-        "Должна быть инструкция JUMP_IF или JUMP_IF_NOT"
+        "Должна быть инструкция JUMP_IF, JUMP_IF_NOT или CmpJmp"
     );
 }
 
@@ -98,14 +100,15 @@ fn test_ir_while_loop() {
     let program = ir_program.unwrap();
     let main = program.get_function("main").unwrap();
 
-    let mut has_cmp = false;
+    let mut has_cmp_or_cmpjmp = false;
     let mut has_jump = false;
     let mut has_jump_if = false;
 
     for block in main.blocks.values() {
         for instr in &block.instructions {
             match instr {
-                IRInstruction::CmpLt(_, _, _) => has_cmp = true,
+                IRInstruction::CmpLt(_, _, _) => has_cmp_or_cmpjmp = true,
+                IRInstruction::CmpJmp(_, _, _, _, _, _, _) => has_cmp_or_cmpjmp = true,
                 IRInstruction::Jump(_) => has_jump = true,
                 IRInstruction::JumpIf(_, _) | IRInstruction::JumpIfNot(_, _) => has_jump_if = true,
                 _ => {}
@@ -113,11 +116,14 @@ fn test_ir_while_loop() {
         }
     }
 
-    assert!(has_cmp, "Должна быть инструкция CMP_LT");
+    assert!(
+        has_cmp_or_cmpjmp,
+        "Должна быть инструкция CMP_LT или CmpJmp"
+    );
     assert!(has_jump, "Должна быть инструкция JUMP");
     assert!(
-        has_jump_if,
-        "Должна быть инструкция JUMP_IF или JUMP_IF_NOT"
+        has_jump_if || has_cmp_or_cmpjmp,
+        "Должна быть инструкция условного перехода"
     );
 }
 
