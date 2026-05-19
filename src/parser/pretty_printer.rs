@@ -55,6 +55,57 @@ impl PrettyPrinter {
         self.visit_program(program);
         self.output.clone()
     }
+
+    /// Вспомогательный метод для форматирования выражения
+    fn format_expression_str(&mut self, expr: &Expression) {
+        match expr {
+            Expression::Literal(l) => {
+                self.output.push_str(&format!("{}", l.value));
+            }
+            Expression::Identifier(i) => {
+                self.output.push_str(&i.name);
+            }
+            Expression::Binary(b) => {
+                self.output.push('(');
+                self.visit_binary(b);
+                self.output.push(')');
+            }
+            Expression::Unary(u) => {
+                self.output.push('(');
+                self.visit_unary(u);
+                self.output.push(')');
+            }
+            Expression::Assignment(a) => {
+                self.output.push('(');
+                self.visit_assignment(a);
+                self.output.push(')');
+            }
+            Expression::Call(c) => {
+                self.visit_call(c);
+            }
+            Expression::StructAccess(sa) => {
+                self.visit_struct_access(sa);
+            }
+            Expression::Grouped(g) => {
+                self.output.push('(');
+                self.visit_grouped(g);
+                self.output.push(')');
+            }
+            Expression::ArrayAccess(_) => {
+                self.output.push_str("Arr[...]");
+            }
+            Expression::ArrayInitializer(arr) => {
+                self.output.push('{');
+                for (i, elem) in arr.elements.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.format_expression_str(elem);
+                }
+                self.output.push('}');
+            }
+        }
+    }
 }
 
 impl Visitor<()> for PrettyPrinter {
@@ -67,6 +118,27 @@ impl Visitor<()> for PrettyPrinter {
             for decl in &program.declarations {
                 match decl {
                     Declaration::Function(f) => self.visit_function_decl(f),
+                    Declaration::ExternFunction(ext) => {
+                        self.writeln(&format!(
+                            "ExternFunctionDecl: {} -> {} [line {}]:",
+                            ext.name, ext.return_type, ext.node.line
+                        ));
+                        self.indent();
+                        self.write_indent();
+                        self.output.push_str("Parameters: [");
+                        for (i, param) in ext.parameters.iter().enumerate() {
+                            if i > 0 {
+                                self.output.push_str(", ");
+                            }
+                            self.output
+                                .push_str(&format!("{}: {}", param.name, param.param_type));
+                        }
+                        if ext.is_variadic {
+                            self.output.push_str(", ...");
+                        }
+                        self.output.push_str("]\n");
+                        self.dedent();
+                    }
                     Declaration::Struct(s) => self.visit_struct_decl(s),
                     Declaration::Variable(v) => self.visit_var_decl(v),
                 }
@@ -116,43 +188,7 @@ impl Visitor<()> for PrettyPrinter {
             .push_str(&format!("VarDecl: {} {}", var_decl.var_type, var_decl.name));
         if let Some(init) = &var_decl.initializer {
             self.output.push_str(" = ");
-            match init.as_ref() {
-                Expression::Literal(l) => {
-                    self.output.push_str(&format!("{}", l.value));
-                }
-                Expression::Identifier(i) => {
-                    self.output.push_str(&i.name);
-                }
-                Expression::Binary(b) => {
-                    self.output.push('(');
-                    self.visit_binary(b);
-                    self.output.push(')');
-                }
-                Expression::Unary(u) => {
-                    self.output.push('(');
-                    self.visit_unary(u);
-                    self.output.push(')');
-                }
-                Expression::Assignment(a) => {
-                    self.output.push('(');
-                    self.visit_assignment(a);
-                    self.output.push(')');
-                }
-                Expression::Call(c) => {
-                    self.visit_call(c);
-                }
-                Expression::StructAccess(sa) => {
-                    self.visit_struct_access(sa);
-                }
-                Expression::Grouped(g) => {
-                    self.output.push('(');
-                    self.visit_grouped(g);
-                    self.output.push(')');
-                }
-                Expression::ArrayAccess(_aa) => {
-                    self.output.push_str("Arr[...]");
-                }
-            }
+            self.format_expression_str(init);
         }
         self.output.push('\n');
     }
@@ -189,35 +225,7 @@ impl Visitor<()> for PrettyPrinter {
         self.indent();
         self.write_indent();
         self.output.push_str("Condition: ");
-        match if_stmt.condition.as_ref() {
-            Expression::Literal(l) => {
-                self.output.push_str(&format!("{}", l.value));
-            }
-            Expression::Identifier(i) => {
-                self.output.push_str(&i.name);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
-            }
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&if_stmt.condition);
         self.output.push('\n');
         self.writeln("Then:");
         self.indent();
@@ -261,35 +269,7 @@ impl Visitor<()> for PrettyPrinter {
         self.indent();
         self.write_indent();
         self.output.push_str("Expression: ");
-        match switch_stmt.expression.as_ref() {
-            Expression::Literal(l) => {
-                self.output.push_str(&format!("{}", l.value));
-            }
-            Expression::Identifier(i) => {
-                self.output.push_str(&i.name);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
-            }
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&switch_stmt.expression);
         self.output.push('\n');
         for case in &switch_stmt.cases {
             self.visit_case_stmt(case);
@@ -339,35 +319,7 @@ impl Visitor<()> for PrettyPrinter {
         self.indent();
         self.write_indent();
         self.output.push_str("Condition: ");
-        match while_stmt.condition.as_ref() {
-            Expression::Literal(l) => {
-                self.output.push_str(&format!("{}", l.value));
-            }
-            Expression::Identifier(i) => {
-                self.output.push_str(&i.name);
-            }
-            Expression::Binary(b) => {
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.visit_grouped(g);
-            }
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&while_stmt.condition);
         self.output.push('\n');
         self.writeln("Body:");
         self.indent();
@@ -412,69 +364,13 @@ impl Visitor<()> for PrettyPrinter {
         if let Some(condition) = &for_stmt.condition {
             self.write_indent();
             self.output.push_str("Condition: ");
-            match condition.as_ref() {
-                Expression::Literal(l) => {
-                    self.output.push_str(&format!("{}", l.value));
-                }
-                Expression::Identifier(i) => {
-                    self.output.push_str(&i.name);
-                }
-                Expression::Binary(b) => {
-                    self.visit_binary(b);
-                }
-                Expression::Unary(u) => {
-                    self.visit_unary(u);
-                }
-                Expression::Assignment(a) => {
-                    self.visit_assignment(a);
-                }
-                Expression::Call(c) => {
-                    self.visit_call(c);
-                }
-                Expression::StructAccess(sa) => {
-                    self.visit_struct_access(sa);
-                }
-                Expression::Grouped(g) => {
-                    self.visit_grouped(g);
-                }
-                Expression::ArrayAccess(_) => {
-                    self.output.push_str("Arr[...]");
-                }
-            }
+            self.format_expression_str(condition);
             self.output.push('\n');
         }
         if let Some(update) = &for_stmt.update {
             self.write_indent();
             self.output.push_str("Update: ");
-            match update.as_ref() {
-                Expression::Literal(l) => {
-                    self.output.push_str(&format!("{}", l.value));
-                }
-                Expression::Identifier(i) => {
-                    self.output.push_str(&i.name);
-                }
-                Expression::Binary(b) => {
-                    self.visit_binary(b);
-                }
-                Expression::Unary(u) => {
-                    self.visit_unary(u);
-                }
-                Expression::Assignment(a) => {
-                    self.visit_assignment(a);
-                }
-                Expression::Call(c) => {
-                    self.visit_call(c);
-                }
-                Expression::StructAccess(sa) => {
-                    self.visit_struct_access(sa);
-                }
-                Expression::Grouped(g) => {
-                    self.visit_grouped(g);
-                }
-                Expression::ArrayAccess(_) => {
-                    self.output.push_str("Arr[...]");
-                }
-            }
+            self.format_expression_str(update);
             self.output.push('\n');
         }
         self.writeln("Body:");
@@ -501,76 +397,15 @@ impl Visitor<()> for PrettyPrinter {
         self.output.push_str("Return");
         if let Some(value) = &return_stmt.value {
             self.output.push_str(": ");
-            match value.as_ref() {
-                Expression::Literal(l) => {
-                    self.output.push_str(&format!("{}", l.value));
-                }
-                Expression::Identifier(i) => {
-                    self.output.push_str(&i.name);
-                }
-                Expression::Binary(b) => {
-                    self.visit_binary(b);
-                }
-                Expression::Unary(u) => {
-                    self.visit_unary(u);
-                }
-                Expression::Assignment(a) => {
-                    self.visit_assignment(a);
-                }
-                Expression::Call(c) => {
-                    self.visit_call(c);
-                }
-                Expression::StructAccess(sa) => {
-                    self.visit_struct_access(sa);
-                }
-                Expression::Grouped(g) => {
-                    self.visit_grouped(g);
-                }
-                Expression::ArrayAccess(_) => {
-                    self.output.push_str("Expr: Arr[...]");
-                }
-            }
+            self.format_expression_str(value);
         }
         self.output.push('\n');
     }
 
     fn visit_expr_stmt(&mut self, expr_stmt: &ExprStmt) {
         self.write_indent();
-        match expr_stmt.expr.as_ref() {
-            Expression::Literal(l) => {
-                self.output.push_str(&format!("Expr: {}", l.value));
-            }
-            Expression::Identifier(i) => {
-                self.output.push_str(&format!("Expr: {}", i.name));
-            }
-            Expression::Binary(b) => {
-                self.output.push_str("Expr: ");
-                self.visit_binary(b);
-            }
-            Expression::Unary(u) => {
-                self.output.push_str("Expr: ");
-                self.visit_unary(u);
-            }
-            Expression::Assignment(a) => {
-                self.output.push_str("Expr: ");
-                self.visit_assignment(a);
-            }
-            Expression::Call(c) => {
-                self.output.push_str("Expr: ");
-                self.visit_call(c);
-            }
-            Expression::StructAccess(sa) => {
-                self.output.push_str("Expr: ");
-                self.visit_struct_access(sa);
-            }
-            Expression::Grouped(g) => {
-                self.output.push_str("Expr: ");
-                self.visit_grouped(g);
-            }
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.output.push_str("Expr: ");
+        self.format_expression_str(&expr_stmt.expr);
         self.output.push('\n');
     }
 
@@ -593,163 +428,43 @@ impl Visitor<()> for PrettyPrinter {
 
     fn visit_binary(&mut self, binary: &BinaryExpr) {
         self.output.push('(');
-        match binary.left.as_ref() {
-            Expression::Literal(l) => self.visit_literal(l),
-            Expression::Identifier(i) => self.visit_identifier(i),
-            Expression::Binary(b) => self.visit_binary(b),
-            Expression::Unary(u) => self.visit_unary(u),
-            Expression::Assignment(a) => self.visit_assignment(a),
-            Expression::Call(c) => self.visit_call(c),
-            Expression::StructAccess(sa) => self.visit_struct_access(sa),
-            Expression::Grouped(g) => self.visit_grouped(g),
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&binary.left);
         self.output.push_str(&format!(" {} ", binary.operator));
-        match binary.right.as_ref() {
-            Expression::Literal(l) => self.visit_literal(l),
-            Expression::Identifier(i) => self.visit_identifier(i),
-            Expression::Binary(b) => self.visit_binary(b),
-            Expression::Unary(u) => self.visit_unary(u),
-            Expression::Assignment(a) => self.visit_assignment(a),
-            Expression::Call(c) => self.visit_call(c),
-            Expression::StructAccess(sa) => self.visit_struct_access(sa),
-            Expression::Grouped(g) => self.visit_grouped(g),
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&binary.right);
         self.output.push(')');
     }
 
     fn visit_unary(&mut self, unary: &UnaryExpr) {
         self.output.push_str(&format!("{}", unary.operator));
-        match unary.operand.as_ref() {
-            Expression::Literal(l) => self.visit_literal(l),
-            Expression::Identifier(i) => self.visit_identifier(i),
-            Expression::Binary(b) => {
-                self.output.push('(');
-                self.visit_binary(b);
-                self.output.push(')');
-            }
-            Expression::Unary(u) => self.visit_unary(u),
-            Expression::Assignment(a) => {
-                self.output.push('(');
-                self.visit_assignment(a);
-                self.output.push(')');
-            }
-            Expression::Call(c) => self.visit_call(c),
-            Expression::StructAccess(sa) => self.visit_struct_access(sa),
-            Expression::Grouped(g) => {
-                self.output.push('(');
-                self.visit_grouped(g);
-                self.output.push(')');
-            }
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&unary.operand);
     }
 
     fn visit_assignment(&mut self, assignment: &AssignmentExpr) {
-        match assignment.target.as_ref() {
-            Expression::Literal(l) => self.visit_literal(l),
-            Expression::Identifier(i) => self.visit_identifier(i),
-            Expression::Binary(b) => self.visit_binary(b),
-            Expression::Unary(u) => self.visit_unary(u),
-            Expression::Assignment(a) => self.visit_assignment(a),
-            Expression::Call(c) => self.visit_call(c),
-            Expression::StructAccess(sa) => self.visit_struct_access(sa),
-            Expression::Grouped(g) => self.visit_grouped(g),
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&assignment.target);
         self.output.push_str(&format!(" {} ", assignment.operator));
-        match assignment.value.as_ref() {
-            Expression::Literal(l) => self.visit_literal(l),
-            Expression::Identifier(i) => self.visit_identifier(i),
-            Expression::Binary(b) => self.visit_binary(b),
-            Expression::Unary(u) => self.visit_unary(u),
-            Expression::Assignment(a) => self.visit_assignment(a),
-            Expression::Call(c) => self.visit_call(c),
-            Expression::StructAccess(sa) => self.visit_struct_access(sa),
-            Expression::Grouped(g) => self.visit_grouped(g),
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&assignment.value);
     }
 
     fn visit_call(&mut self, call: &CallExpr) {
-        match call.callee.as_ref() {
-            Expression::Literal(l) => self.visit_literal(l),
-            Expression::Identifier(i) => self.visit_identifier(i),
-            Expression::Binary(b) => self.visit_binary(b),
-            Expression::Unary(u) => self.visit_unary(u),
-            Expression::Assignment(a) => self.visit_assignment(a),
-            Expression::Call(c) => self.visit_call(c),
-            Expression::StructAccess(sa) => self.visit_struct_access(sa),
-            Expression::Grouped(g) => self.visit_grouped(g),
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&call.callee);
         self.output.push('(');
         for (i, arg) in call.arguments.iter().enumerate() {
             if i > 0 {
                 self.output.push_str(", ");
             }
-            match arg {
-                Expression::Literal(l) => self.visit_literal(l),
-                Expression::Identifier(i) => self.visit_identifier(i),
-                Expression::Binary(b) => self.visit_binary(b),
-                Expression::Unary(u) => self.visit_unary(u),
-                Expression::Assignment(a) => self.visit_assignment(a),
-                Expression::Call(c) => self.visit_call(c),
-                Expression::StructAccess(sa) => self.visit_struct_access(sa),
-                Expression::Grouped(g) => self.visit_grouped(g),
-                Expression::ArrayAccess(_) => {
-                    self.output.push_str("Arr[...]");
-                }
-            }
+            self.format_expression_str(arg);
         }
         self.output.push(')');
     }
 
     fn visit_struct_access(&mut self, access: &StructAccessExpr) {
-        match access.object.as_ref() {
-            Expression::Literal(l) => self.visit_literal(l),
-            Expression::Identifier(i) => self.visit_identifier(i),
-            Expression::Binary(b) => self.visit_binary(b),
-            Expression::Unary(u) => self.visit_unary(u),
-            Expression::Assignment(a) => self.visit_assignment(a),
-            Expression::Call(c) => self.visit_call(c),
-            Expression::StructAccess(sa) => self.visit_struct_access(sa),
-            Expression::Grouped(g) => self.visit_grouped(g),
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&access.object);
         self.output.push_str(&format!(".{}", access.field));
     }
 
     fn visit_grouped(&mut self, grouped: &GroupedExpr) {
         self.output.push('(');
-        match grouped.expr.as_ref() {
-            Expression::Literal(l) => self.visit_literal(l),
-            Expression::Identifier(i) => self.visit_identifier(i),
-            Expression::Binary(b) => self.visit_binary(b),
-            Expression::Unary(u) => self.visit_unary(u),
-            Expression::Assignment(a) => self.visit_assignment(a),
-            Expression::Call(c) => self.visit_call(c),
-            Expression::StructAccess(sa) => self.visit_struct_access(sa),
-            Expression::Grouped(g) => self.visit_grouped(g),
-            Expression::ArrayAccess(_) => {
-                self.output.push_str("Arr[...]");
-            }
-        }
+        self.format_expression_str(&grouped.expr);
         self.output.push(')');
     }
 

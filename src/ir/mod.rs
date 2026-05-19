@@ -2,12 +2,13 @@
 //!
 //! Этот модуль реализует генерацию трехадресного кода из декорированного AST.
 
-mod basic_block;
-mod control_flow;
-mod ir_generator;
-mod ir_instructions;
-mod ir_printer;
-mod peephole_optimizer;
+pub mod basic_block;
+pub mod control_flow;
+pub mod inline_optimizer;
+pub mod ir_generator;
+pub mod ir_instructions;
+pub mod ir_printer;
+pub mod peephole_optimizer;
 
 pub use basic_block::*;
 pub use control_flow::ControlFlowGraph;

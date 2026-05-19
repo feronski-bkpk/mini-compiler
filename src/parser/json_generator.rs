@@ -31,6 +31,44 @@ impl JsonGenerator {
         let value = self.generate(program);
         serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string())
     }
+
+    fn visit_expression(&mut self, expr: &Expression) -> Value {
+        match expr {
+            Expression::Literal(l) => self.visit_literal(l),
+            Expression::Identifier(i) => self.visit_identifier(i),
+            Expression::Binary(b) => self.visit_binary(b),
+            Expression::Unary(u) => self.visit_unary(u),
+            Expression::Assignment(a) => self.visit_assignment(a),
+            Expression::Call(c) => self.visit_call(c),
+            Expression::StructAccess(sa) => self.visit_struct_access(sa),
+            Expression::ArrayAccess(aa) => self.visit_array_access(aa),
+            Expression::Grouped(g) => self.visit_grouped(g),
+            Expression::ArrayInitializer(arr) => {
+                let elements: Vec<Value> = arr
+                    .elements
+                    .iter()
+                    .map(|e| self.visit_expression(e))
+                    .collect();
+                json!({ "type": "ArrayInitializer", "line": arr.node.line, "column": arr.node.column, "elements": elements })
+            }
+        }
+    }
+
+    fn visit_statement(&mut self, stmt: &Statement) -> Value {
+        match stmt {
+            Statement::VariableDecl(v) => self.visit_var_decl(v),
+            Statement::Expression(e) => self.visit_expr_stmt(e),
+            Statement::If(i) => self.visit_if_stmt(i),
+            Statement::While(w) => self.visit_while_stmt(w),
+            Statement::For(f) => self.visit_for_stmt(f),
+            Statement::Return(r) => self.visit_return_stmt(r),
+            Statement::Block(b) => self.visit_block(b),
+            Statement::Empty(e) => self.visit_empty_stmt(e),
+            Statement::Break(b) => self.visit_break_stmt(b),
+            Statement::Continue(c) => self.visit_continue_stmt(c),
+            Statement::Switch(s) => self.visit_switch_stmt(s),
+        }
+    }
 }
 
 impl Visitor<Value> for JsonGenerator {
@@ -39,6 +77,17 @@ impl Visitor<Value> for JsonGenerator {
         for decl in &program.declarations {
             declarations.push(match decl {
                 Declaration::Function(f) => self.visit_function_decl(f),
+                Declaration::ExternFunction(ext) => {
+                    json!({
+                        "type": "ExternFunctionDecl",
+                        "line": ext.node.line,
+                        "column": ext.node.column,
+                        "name": ext.name,
+                        "return_type": ext.return_type.to_string(),
+                        "parameters": ext.parameters.iter().map(|p| self.visit_param(p)).collect::<Vec<_>>(),
+                        "is_variadic": ext.is_variadic,
+                    })
+                }
                 Declaration::Struct(s) => self.visit_struct_decl(s),
                 Declaration::Variable(v) => self.visit_var_decl(v),
             });
@@ -73,19 +122,7 @@ impl Visitor<Value> for JsonGenerator {
     fn visit_block(&mut self, block: &BlockStmt) -> Value {
         let mut statements = Vec::new();
         for stmt in &block.statements {
-            statements.push(match stmt {
-                Statement::VariableDecl(v) => self.visit_var_decl(v),
-                Statement::Expression(e) => self.visit_expr_stmt(e),
-                Statement::If(i) => self.visit_if_stmt(i),
-                Statement::While(w) => self.visit_while_stmt(w),
-                Statement::For(f) => self.visit_for_stmt(f),
-                Statement::Return(r) => self.visit_return_stmt(r),
-                Statement::Block(b) => self.visit_block(b),
-                Statement::Empty(e) => self.visit_empty_stmt(e),
-                Statement::Break(b) => self.visit_break_stmt(b),
-                Statement::Continue(c) => self.visit_continue_stmt(c),
-                Statement::Switch(s) => self.visit_switch_stmt(s),
-            });
+            statements.push(self.visit_statement(stmt));
         }
         json!({ "type": "Block", "line": block.node.line, "column": block.node.column, "statements": statements })
     }
@@ -184,39 +221,5 @@ impl Visitor<Value> for JsonGenerator {
             "array": self.visit_expression(&access.array),
             "index": self.visit_expression(&access.index)
         })
-    }
-}
-
-impl JsonGenerator {
-    fn visit_expression(&mut self, expr: &Expression) -> Value {
-        match expr {
-            Expression::Literal(l) => self.visit_literal(l),
-            Expression::Identifier(i) => self.visit_identifier(i),
-            Expression::Binary(b) => self.visit_binary(b),
-            Expression::Unary(u) => self.visit_unary(u),
-            Expression::Assignment(a) => self.visit_assignment(a),
-            Expression::Call(c) => self.visit_call(c),
-            Expression::StructAccess(sa) => self.visit_struct_access(sa),
-            Expression::ArrayAccess(aa) => {
-                json!({ "type": "ArrayAccess", "array": self.visit_expression(&aa.array), "index": self.visit_expression(&aa.index) })
-            }
-            Expression::Grouped(g) => self.visit_grouped(g),
-        }
-    }
-
-    fn visit_statement(&mut self, stmt: &Statement) -> Value {
-        match stmt {
-            Statement::VariableDecl(v) => self.visit_var_decl(v),
-            Statement::Expression(e) => self.visit_expr_stmt(e),
-            Statement::If(i) => self.visit_if_stmt(i),
-            Statement::While(w) => self.visit_while_stmt(w),
-            Statement::For(f) => self.visit_for_stmt(f),
-            Statement::Return(r) => self.visit_return_stmt(r),
-            Statement::Block(b) => self.visit_block(b),
-            Statement::Empty(e) => self.visit_empty_stmt(e),
-            Statement::Break(b) => self.visit_break_stmt(b),
-            Statement::Continue(c) => self.visit_continue_stmt(c),
-            Statement::Switch(s) => self.visit_switch_stmt(s),
-        }
     }
 }

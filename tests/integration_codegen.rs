@@ -44,8 +44,8 @@ fn compile_and_run(source: &str, expected_exit_code: i32) -> bool {
     fs::write(&asm_file, &result.assembly).expect("Failed to write ASM");
 
     let nasm_status = Command::new("nasm")
-    .args(&["-f", "elf64", &asm_file, "-o", &obj_file])
-    .output();
+        .args(&["-f", "elf64", &asm_file, "-o", &obj_file])
+        .output();
 
     let nasm_output = match nasm_status {
         Ok(out) => out,
@@ -63,17 +63,11 @@ fn compile_and_run(source: &str, expected_exit_code: i32) -> bool {
         return false;
     }
 
-    let linker = if cfg!(windows) { "gcc" } else { "ld" };
+    let linker = "gcc";
 
-    let ld_status = if cfg!(windows) {
-        Command::new(linker)
-        .args(&["-no-pie", "-o", &exe_file, &obj_file])
-        .output()
-    } else {
-        Command::new(linker)
-        .args(&[&obj_file, "-o", &exe_file])
-        .output()
-    };
+    let ld_status = Command::new(linker)
+        .args(&["-no-pie", &obj_file, "-o", &exe_file])
+        .output();
 
     let ld_output = match ld_status {
         Ok(out) => out,
@@ -95,7 +89,7 @@ fn compile_and_run(source: &str, expected_exit_code: i32) -> bool {
     let run_output = if cfg!(windows) {
         Command::new("cmd").args(&["/C", &exe_file]).output()
     } else {
-        Command::new(format!("./{}", exe_file)).output()  // ИСПРАВЛЕНО: добавил ./
+        Command::new(format!("./{}", exe_file)).output()
     };
 
     let run_result = match run_output {

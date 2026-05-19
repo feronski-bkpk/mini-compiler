@@ -7,39 +7,27 @@ use std::collections::HashMap;
 /// Вид символа
 #[derive(Debug, Clone, PartialEq)]
 pub enum SymbolKind {
-    /// Переменная
     Variable,
-    /// Параметр функции
     Parameter,
-    /// Функция
     Function,
-    /// Структура
     Struct,
-    /// Поле структуры
     Field,
 }
 
 /// Информация о символе
 #[derive(Debug, Clone)]
 pub struct Symbol {
-    /// Имя символа
     pub name: String,
-    /// Тип символа
     pub typ: Type,
-    /// Вид символа
     pub kind: SymbolKind,
-    /// Позиция объявления
     pub position: Position,
-    /// Для функций: список типов параметров
     pub param_types: Option<Vec<Type>>,
-    /// Для структур: поля
     pub fields: Option<HashMap<String, Type>>,
-    /// Смещение в стеке (для будущей генерации кода)
     pub stack_offset: Option<i32>,
+    pub is_variadic: bool,
 }
 
 impl Symbol {
-    /// Создает символ переменной
     pub fn variable(name: String, typ: Type, position: Position) -> Self {
         Self {
             name,
@@ -49,10 +37,10 @@ impl Symbol {
             param_types: None,
             fields: None,
             stack_offset: None,
+            is_variadic: false,
         }
     }
 
-    /// Создает символ параметра
     pub fn parameter(name: String, typ: Type, position: Position) -> Self {
         Self {
             name,
@@ -62,14 +50,15 @@ impl Symbol {
             param_types: None,
             fields: None,
             stack_offset: None,
+            is_variadic: false,
         }
     }
 
-    /// Создает символ функции
     pub fn function(
         name: String,
         return_type: Type,
         param_types: Vec<Type>,
+        is_variadic: bool,
         position: Position,
     ) -> Self {
         Self {
@@ -83,10 +72,10 @@ impl Symbol {
             param_types: Some(param_types),
             fields: None,
             stack_offset: None,
+            is_variadic,
         }
     }
 
-    /// Создает символ структуры
     pub fn struct_type(name: String, fields: HashMap<String, Type>, position: Position) -> Self {
         Self {
             name: name.clone(),
@@ -96,10 +85,10 @@ impl Symbol {
             param_types: None,
             fields: Some(fields),
             stack_offset: None,
+            is_variadic: false,
         }
     }
 
-    /// Создает символ поля структуры
     pub fn field(name: String, typ: Type, position: Position) -> Self {
         Self {
             name,
@@ -109,10 +98,10 @@ impl Symbol {
             param_types: None,
             fields: None,
             stack_offset: None,
+            is_variadic: false,
         }
     }
 
-    /// Возвращает возвращаемый тип функции (если это функция)
     pub fn return_type(&self) -> Option<&Type> {
         if let Type::Function { return_type, .. } = &self.typ {
             Some(return_type)
@@ -121,12 +110,10 @@ impl Symbol {
         }
     }
 
-    /// Возвращает типы параметров функции (если это функция)
     pub fn param_types(&self) -> Option<&[Type]> {
         self.param_types.as_deref()
     }
 
-    /// Проверяет, является ли символ функцией
     pub fn is_function(&self) -> bool {
         matches!(self.kind, SymbolKind::Function)
     }
@@ -135,16 +122,12 @@ impl Symbol {
 /// Таблица символов с поддержкой вложенных областей видимости
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
-    /// Стек областей видимости (каждая область - карта имен -> символ)
     scopes: Vec<HashMap<String, Symbol>>,
-    /// Текущая глубина вложенности
     depth: usize,
-    /// Смещение в стеке для локальных переменных
     stack_offset: i32,
 }
 
 impl SymbolTable {
-    /// Создает новую таблицу символов
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
@@ -153,13 +136,11 @@ impl SymbolTable {
         }
     }
 
-    /// Входит в новую область видимости
     pub fn enter_scope(&mut self) {
         self.scopes.push(HashMap::new());
         self.depth += 1;
     }
 
-    /// Выходит из текущей области видимости
     pub fn exit_scope(&mut self) {
         if self.scopes.len() > 1 {
             self.stack_offset = 0;
@@ -168,7 +149,6 @@ impl SymbolTable {
         }
     }
 
-    /// Вставляет символ в текущую область видимости
     pub fn insert(&mut self, name: &str, symbol: Symbol) -> bool {
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(name) {
@@ -179,7 +159,6 @@ impl SymbolTable {
         }
     }
 
-    /// Вставляет символ с вычислением смещения
     pub fn insert_with_offset(&mut self, name: &str, mut symbol: Symbol) -> bool {
         if matches!(symbol.kind, SymbolKind::Variable | SymbolKind::Parameter) {
             if let Some(size) = symbol.typ.size() {
@@ -190,7 +169,6 @@ impl SymbolTable {
         self.insert(name, symbol)
     }
 
-    /// Ищет символ в текущей и внешних областях видимости
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
         for scope in self.scopes.iter().rev() {
             if let Some(symbol) = scope.get(name) {
@@ -200,47 +178,38 @@ impl SymbolTable {
         None
     }
 
-    /// Ищет символ только в текущей области видимости
     pub fn lookup_local(&self, name: &str) -> Option<&Symbol> {
         self.scopes.last().unwrap().get(name)
     }
 
-    /// Проверяет, существует ли символ в текущей области
     pub fn exists_local(&self, name: &str) -> bool {
         self.scopes.last().unwrap().contains_key(name)
     }
 
-    /// Проверяет, существует ли символ в любой области
     pub fn exists(&self, name: &str) -> bool {
         self.lookup(name).is_some()
     }
 
-    /// Возвращает текущую глубину вложенности
     pub fn depth(&self) -> usize {
         self.depth
     }
 
-    /// Возвращает все символы в глобальной области
     pub fn global_symbols(&self) -> impl Iterator<Item = &Symbol> {
         self.scopes[0].values()
     }
 
-    /// Возвращает все символы в текущей области
     pub fn current_symbols(&self) -> impl Iterator<Item = &Symbol> {
         self.scopes.last().unwrap().values()
     }
 
-    /// Возвращает текущее смещение в стеке
     pub fn current_offset(&self) -> i32 {
         self.stack_offset
     }
 
-    /// Возвращает размер фрейма текущей функции
     pub fn frame_size(&self) -> i32 {
         self.stack_offset
     }
 
-    /// Дамп таблицы символов
     pub fn dump(&self) -> String {
         let mut output = String::new();
         output.push_str("=== ТАБЛИЦА СИМВОЛОВ ===\n");
@@ -268,7 +237,6 @@ impl SymbolTable {
         output
     }
 
-    /// Обновляет символ в текущей области
     pub fn update_symbol(&mut self, name: &str, new_symbol: &Symbol) -> bool {
         if let Some(current_scope) = self.scopes.last_mut() {
             if current_scope.contains_key(name) {
@@ -279,7 +247,6 @@ impl SymbolTable {
         false
     }
 
-    /// Дамп таблицы символов с размерами и смещениями
     pub fn dump_with_layout(&self) -> String {
         let mut output = String::new();
         output.push_str("=== ТАБЛИЦА СИМВОЛОВ (РАЗМЕРЫ И СМЕЩЕНИЯ) ===\n");

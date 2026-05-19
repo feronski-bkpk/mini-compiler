@@ -1,0 +1,84 @@
+extern int printf(char* format, ...);
+
+int square(int x) {
+    return x * x;
+}
+
+int cube(int x) {
+    return x * x * x;
+}
+
+void swap(int* a, int* b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+void bubble_sort(int arr[], int size) {
+    for (int i = 0; i < size - 1; i = i + 1) {
+        for (int j = 0; j < size - i - 1; j = j + 1) {
+            if (arr[j] > arr[j + 1]) {
+                swap(&arr[j], &arr[j + 1]);
+            }
+        }
+    }
+}
+
+void print_array(int arr[], int size) {
+    for (int i = 0; i < size; i = i + 1) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+}
+
+int sum_recursive(int arr[], int size) {
+    if (size <= 0) {
+        return 0;
+    }
+    return arr[size - 1] + sum_recursive(arr, size - 1);
+}
+
+int demo_inline() {
+    printf("--- Function Inlining Demo ---\n");
+    int a = square(5);
+    int b = cube(3);
+    printf("square(5) = %d\n", a);
+    printf("cube(3) = %d\n", b);
+    printf("square(5) + cube(3) = %d\n", a + b);
+    return a + b;
+}
+
+void demo_arrays() {
+    printf("\n--- Arrays & Pointers Demo ---\n");
+    int numbers[8] = {42, 23, 17, 89, 5, 73, 11, 58};
+    int size = 8;
+    printf("Original array: ");
+    print_array(numbers, size);
+    int x = 100;
+    int y = 200;
+    printf("Before swap: x=%d, y=%d\n", x, y);
+    swap(&x, &y);
+    printf("After swap:  x=%d, y=%d\n", x, y);
+    printf("Sorting array...\n");
+    bubble_sort(numbers, size);
+    printf("Sorted array: ");
+    print_array(numbers, size);
+    int sum = sum_recursive(numbers, size);
+    printf("Sum of array (recursive): %d\n", sum);
+}
+
+int main() {
+    printf("=== Sprint 7 Demo ===\n");
+    printf("MiniCompiler with:\n");
+    printf("  - External functions (printf)\n");
+    printf("  - Variadic arguments\n");
+    printf("  - Stack arrays\n");
+    printf("  - Pointers (* and &)\n");
+    printf("  - Recursion\n");
+    printf("  - Function inlining\n");
+    printf("  - Optimizations\n\n");
+    demo_inline();
+    demo_arrays();
+    printf("\n=== Demo Complete ===\n");
+    return 0;
+}

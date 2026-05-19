@@ -11,6 +11,7 @@ pub enum IRType {
     Bool,
     Void,
     String,
+    Char,
     Struct(String),
     Pointer(Box<IRType>),
     Array(Box<IRType>, usize),
@@ -25,6 +26,7 @@ impl fmt::Display for IRType {
             IRType::Bool => write!(f, "bool"),
             IRType::Void => write!(f, "void"),
             IRType::String => write!(f, "string"),
+            IRType::Char => write!(f, "i8"),
             IRType::Struct(name) => write!(f, "struct {}", name),
             IRType::Pointer(inner) => write!(f, "{}*", inner),
             IRType::Array(inner, size) => write!(f, "{}[{}]", inner, size),
@@ -41,6 +43,7 @@ impl IRType {
             IRType::Bool => 1,
             IRType::Void => 0,
             IRType::String => 8,
+            IRType::Char => 1,
             IRType::Struct(_) => 0,
             IRType::Pointer(_) => 8,
             IRType::Array(inner, count) => inner.size() * count,
@@ -198,6 +201,7 @@ pub enum IRInstruction {
     FloatToInt(Operand, Operand),
 
     CmpJmp(Operand, Operand, Operand, Operand, String, String, bool),
+    AddrOf(Operand, Operand),
 }
 
 impl IRInstruction {
@@ -252,10 +256,10 @@ impl IRInstruction {
             IRInstruction::IntToFloat(_, s) => vec![s],
             IRInstruction::FloatToInt(_, s) => vec![s],
             IRInstruction::CmpJmp(l, r, _, _, _, _, _) => vec![l, r],
+            IRInstruction::AddrOf(_, s) => vec![s],
         }
     }
 
-    /// Возвращает ВСЕ операнды, включая destination
     pub fn all_operands(&self) -> Vec<&Operand> {
         let mut ops = self.operands();
         match self {
@@ -299,6 +303,9 @@ impl IRInstruction {
                 ops.push(d);
             }
             IRInstruction::Call(d, _, _) => {
+                ops.push(d);
+            }
+            IRInstruction::AddrOf(d, _) => {
                 ops.push(d);
             }
             _ => {}
@@ -431,8 +438,13 @@ impl fmt::Display for IRInstruction {
             IRInstruction::Move(d, s) => write!(f, "{} = MOVE {}", d, s),
             IRInstruction::IntToFloat(d, s) => write!(f, "{} = INT_TO_FLOAT {}", d, s),
             IRInstruction::FloatToInt(d, s) => write!(f, "{} = FLOAT_TO_INT {}", d, s),
+            IRInstruction::AddrOf(d, s) => write!(f, "{} = ADDR_OF {}", d, s),
             IRInstruction::CmpJmp(l, r, tl, fl, cmp, jcc, _) => {
-                write!(f, "CMP_JMP {}, {} -> {} else {} ({}/{})", l, r, tl, fl, cmp, jcc)
+                write!(
+                    f,
+                    "CMP_JMP {}, {} -> {} else {} ({}/{})",
+                    l, r, tl, fl, cmp, jcc
+                )
             }
         }
     }

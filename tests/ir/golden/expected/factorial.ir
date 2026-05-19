@@ -1,5 +1,5 @@
 # Program: MiniC IR
-# Generated: 2026-05-14 09:03:46
+# Generated: 2026-05-18 19:44:39
 
 function main: int ()
   L1_001_entry:
@@ -23,5 +23,6 @@ function factorial: int (int n)
     RETURN t3
 
   L2_004_endif:
+    RETURN 0
 
 

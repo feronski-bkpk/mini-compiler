@@ -141,7 +141,10 @@ fn test_stack_frame_allocation() {
     assert!(result.assembly.contains("ret"), "Нет ret");
 
     if result.frame_size > 0 {
-        assert!(result.assembly.contains("sub rsp,"), "Фрейм > 0 но нет sub rsp");
+        assert!(
+            result.assembly.contains("sub rsp,"),
+            "Фрейм > 0 но нет sub rsp"
+        );
     }
 }
 

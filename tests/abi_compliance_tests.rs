@@ -21,12 +21,24 @@ fn test_abi_parameter_passing() {
     let ir = ir_program.unwrap();
     let result = generate_assembly(&ir, false);
 
-    assert!(result.assembly.contains("mov rdi,") || result.assembly.contains("mov edi,"));
-    assert!(result.assembly.contains("mov rsi,") || result.assembly.contains("mov esi,"));
-    assert!(result.assembly.contains("mov rdx,") || result.assembly.contains("mov edx,"));
-    assert!(result.assembly.contains("mov rcx,") || result.assembly.contains("mov ecx,"));
-    assert!(result.assembly.contains("mov r8,"));
-    assert!(result.assembly.contains("mov r9,"));
+    assert!(
+        result.assembly.contains("mov [rbp+24], rdi")
+            || result.assembly.contains("mov [rbp+24], edi")
+    );
+    assert!(
+        result.assembly.contains("mov [rbp+32], rsi")
+            || result.assembly.contains("mov [rbp+32], esi")
+    );
+    assert!(
+        result.assembly.contains("mov [rbp+40], rdx")
+            || result.assembly.contains("mov [rbp+40], edx")
+    );
+    assert!(
+        result.assembly.contains("mov [rbp+48], rcx")
+            || result.assembly.contains("mov [rbp+48], ecx")
+    );
+    assert!(result.assembly.contains("mov [rbp+56], r8"));
+    assert!(result.assembly.contains("mov [rbp+64], r9"));
 
     assert!(result.assembly.contains("push") || result.assembly.contains("sub rsp"));
 }

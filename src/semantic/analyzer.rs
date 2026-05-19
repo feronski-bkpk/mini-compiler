@@ -8,11 +8,8 @@ use crate::semantic::type_system::{BinaryOpType, Type, TypeChecker, UnaryOpType}
 /// Декорированный AST с аннотациями типов
 #[derive(Debug, Clone)]
 pub struct DecoratedNode {
-    /// Исходный узел AST
     pub node: Node,
-    /// Выведенный тип
     pub typ: Option<Type>,
-    /// Ссылка на символ в таблице (для идентификаторов)
     pub symbol: Option<Symbol>,
 }
 
@@ -39,11 +36,8 @@ impl DecoratedNode {
 /// Результат семантического анализа
 #[derive(Debug)]
 pub struct SemanticOutput {
-    /// Декорированное AST
     pub decorated_ast: Option<Program>,
-    /// Таблица символов
     pub symbol_table: SymbolTable,
-    /// Ошибки
     pub errors: SemanticErrors,
 }
 
@@ -76,7 +70,6 @@ pub struct SemanticAnalyzer {
 }
 
 impl SemanticAnalyzer {
-    /// Создает новый семантический анализатор
     pub fn new() -> Self {
         Self {
             symbol_table: SymbolTable::new(),
@@ -88,18 +81,14 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Устанавливает максимальное количество ошибок
     pub fn with_max_errors(mut self, max: usize) -> Self {
         self.errors = self.errors.with_max_errors(max);
         self
     }
 
-    /// Запускает семантический анализ программы
     pub fn analyze(&mut self, program: Program) -> SemanticOutput {
         self.collect_declarations(&program);
-
         self.analyze_program(&program);
-
         SemanticOutput::new(
             Some(program),
             self.symbol_table.clone(),
@@ -107,34 +96,46 @@ impl SemanticAnalyzer {
         )
     }
 
-    /// Первый проход: сбор всех объявлений в таблицу символов
     fn collect_declarations(&mut self, program: &Program) {
         for decl in &program.declarations {
             match decl {
                 Declaration::Function(func) => self.collect_function(func),
                 Declaration::Struct(struct_decl) => self.collect_struct(struct_decl),
                 Declaration::Variable(var) => self.collect_global_variable(var),
+                Declaration::ExternFunction(ext) => {
+                    let param_types: Vec<Type> = ext
+                        .parameters
+                        .iter()
+                        .map(|p| Type::from_ast(&p.param_type))
+                        .collect();
+                    let return_type = Type::from_ast(&ext.return_type);
+                    let symbol = Symbol::function(
+                        ext.name.clone(),
+                        return_type,
+                        param_types,
+                        ext.is_variadic,
+                        ext.node.position(),
+                    );
+                    self.symbol_table.insert(&ext.name, symbol);
+                }
             }
         }
     }
 
-    /// Сбор объявления функции
     fn collect_function(&mut self, func: &FunctionDecl) {
         let param_types: Vec<Type> = func
             .parameters
             .iter()
             .map(|p| Type::from_ast(&p.param_type))
             .collect();
-
         let return_type = Type::from_ast(&func.return_type);
-
         let symbol = Symbol::function(
             func.name.clone(),
             return_type,
             param_types,
+            func.is_variadic,
             func.node.position(),
         );
-
         if !self.symbol_table.insert(&func.name, symbol) {
             self.errors.add(
                 SemanticError::new(
@@ -149,7 +150,6 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Сбор объявления структуры
     fn collect_struct(&mut self, struct_decl: &StructDecl) {
         let mut fields = std::collections::HashMap::new();
         let mut field_types = std::collections::HashMap::new();
@@ -158,7 +158,6 @@ impl SemanticAnalyzer {
 
         for field in &struct_decl.fields {
             let field_type = Type::from_ast(&field.var_type);
-
             if fields.contains_key(&field.name) {
                 self.errors.add(
                     SemanticError::new(
@@ -174,20 +173,17 @@ impl SemanticAnalyzer {
             } else {
                 field_order.push(field.name.clone());
                 field_types.insert(field.name.clone(), field_type.clone());
-
                 let field_symbol = Symbol::field(
                     field.name.clone(),
                     field_type.clone(),
                     field.node.position(),
                 );
                 field_symbols.insert(field.name.clone(), field_symbol);
-
                 fields.insert(field.name.clone(), field_type);
             }
         }
 
         let struct_offsets = Type::struct_offsets(&field_types, &field_order);
-
         for (field_name, offset) in struct_offsets {
             if let Some(field_symbol) = field_symbols.get_mut(&field_name) {
                 field_symbol.stack_offset = Some(offset as i32);
@@ -199,7 +195,6 @@ impl SemanticAnalyzer {
             fields,
             struct_decl.node.position(),
         );
-
         if !self.symbol_table.insert(&struct_decl.name, symbol) {
             self.errors.add(
                 SemanticError::new(
@@ -212,7 +207,6 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Сбор глобальной переменной
     fn collect_global_variable(&mut self, var: &VarDecl) {
         let var_type = match &var.var_type {
             crate::parser::ast::Type::Inferred => {
@@ -234,9 +228,7 @@ impl SemanticAnalyzer {
             }
             _ => Type::from_ast(&var.var_type),
         };
-
         let symbol = Symbol::variable(var.name.clone(), var_type, var.node.position());
-
         if !self.symbol_table.insert(&var.name, symbol) {
             self.errors.add(
                 SemanticError::new(
@@ -249,12 +241,27 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Второй проход: анализ программы
     fn analyze_program(&mut self, program: &Program) {
         for decl in &program.declarations {
             match decl {
                 Declaration::Function(func) => self.analyze_function(func),
                 Declaration::Struct(_) => {}
+                Declaration::ExternFunction(ext) => {
+                    let param_types: Vec<Type> = ext
+                        .parameters
+                        .iter()
+                        .map(|p| Type::from_ast(&p.param_type))
+                        .collect();
+                    let return_type = Type::from_ast(&ext.return_type);
+                    let symbol = Symbol::function(
+                        ext.name.clone(),
+                        return_type,
+                        param_types,
+                        ext.is_variadic,
+                        ext.node.position(),
+                    );
+                    self.symbol_table.insert(&ext.name, symbol);
+                }
                 Declaration::Variable(var) => {
                     if let crate::parser::ast::Type::Inferred = &var.var_type {
                         if let Some(initializer) = &var.initializer {
@@ -289,16 +296,15 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Анализ функции
     fn analyze_function(&mut self, func: &FunctionDecl) {
         self.symbol_table.enter_scope();
-
         let previous_function = self.current_function.take();
         let return_type = Type::from_ast(&func.return_type);
         self.current_function = Some(Symbol::function(
             func.name.clone(),
             return_type,
             vec![],
+            func.is_variadic,
             func.node.position(),
         ));
         self.has_return = false;
@@ -306,7 +312,6 @@ impl SemanticAnalyzer {
         for param in &func.parameters {
             let param_type = Type::from_ast(&param.param_type);
             let symbol = Symbol::parameter(param.name.clone(), param_type, param.node.position());
-
             if !self.symbol_table.insert(&param.name, symbol) {
                 self.errors.add(
                     SemanticError::new(
@@ -328,16 +333,14 @@ impl SemanticAnalyzer {
                     func.node.position(),
                     format!("Функция '{}' должна возвращать значение", func.name),
                 )
-                    .with_suggestion(format!("Добавьте 'return <значение>;' в конец функции или измените возвращаемый тип на void")),
+                .with_suggestion(format!("Добавьте 'return <значение>;' в конец функции или измените возвращаемый тип на void")),
             );
         }
 
         self.current_function = previous_function;
-
         self.symbol_table.exit_scope();
     }
 
-    /// Анализ объявления переменной с поддержкой var
     fn analyze_variable_decl(&mut self, var: &VarDecl) {
         if self.symbol_table.exists_local(&var.name) {
             self.errors.add(
@@ -407,25 +410,43 @@ impl SemanticAnalyzer {
             _ => Type::from_ast(&var.var_type),
         };
 
-        if let Some(initializer) = &var.initializer {
-            let init_type = self.analyze_expression(initializer);
-            if let Some(init_type) = init_type {
-                if !self.type_checker.is_assignable(&var_type, &init_type) {
-                    self.errors.add(
-                        SemanticError::new(
-                            SemanticErrorKind::AssignmentTypeMismatch,
-                            var.node.position(),
-                            format!(
-                                "Несоответствие типов при инициализации переменной '{}'",
-                                var.name
+        if let Some(init) = &var.initializer {
+            if let Expression::ArrayInitializer(arr_init) = init.as_ref() {
+                if let crate::parser::ast::Type::Array(_, Some(max_size)) = &var.var_type {
+                    if arr_init.elements.len() as i32 > *max_size {
+                        self.errors.add(
+                            SemanticError::new(
+                                SemanticErrorKind::TypeMismatch,
+                                var.node.position(),
+                                format!(
+                                    "Слишком много элементов в инициализаторе массива: объявлено [{}], получено {}",
+                                    max_size,
+                                    arr_init.elements.len()
+                                ),
                             ),
-                        )
-                        .with_types(var_type.clone(), init_type.clone())
-                        .with_suggestion(format!(
-                            "Используйте значение типа {} или выполните явное приведение",
-                            var_type
-                        )),
-                    );
+                        );
+                    }
+                }
+            } else {
+                let init_type = self.analyze_expression(init);
+                if let Some(init_type) = init_type {
+                    if !self.type_checker.is_assignable(&var_type, &init_type) {
+                        self.errors.add(
+                            SemanticError::new(
+                                SemanticErrorKind::AssignmentTypeMismatch,
+                                var.node.position(),
+                                format!(
+                                    "Несоответствие типов при инициализации переменной '{}'",
+                                    var.name
+                                ),
+                            )
+                            .with_types(var_type.clone(), init_type.clone())
+                            .with_suggestion(format!(
+                                "Ожидался тип {}, получен {}",
+                                var_type, init_type
+                            )),
+                        );
+                    }
                 }
             }
         }
@@ -434,18 +455,14 @@ impl SemanticAnalyzer {
         self.symbol_table.insert_with_offset(&var.name, symbol);
     }
 
-    /// Анализ блока инструкций
     fn analyze_block(&mut self, block: &BlockStmt) {
         self.symbol_table.enter_scope();
-
         for stmt in &block.statements {
             self.analyze_statement(stmt);
         }
-
         self.symbol_table.exit_scope();
     }
 
-    /// Анализ инструкции
     fn analyze_statement(&mut self, stmt: &Statement) {
         match stmt {
             Statement::VariableDecl(var) => self.analyze_variable_decl(var),
@@ -490,10 +507,8 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Анализ if
     fn analyze_if(&mut self, if_stmt: &IfStmt) {
         let cond_type = self.analyze_expression(&if_stmt.condition);
-
         if let Some(cond_type) = cond_type {
             if !self.type_checker.is_compatible(&Type::Bool, &cond_type) {
                 self.errors.add(
@@ -507,9 +522,7 @@ impl SemanticAnalyzer {
                 );
             }
         }
-
         self.analyze_statement(&if_stmt.then_branch);
-
         if let Some(else_branch) = &if_stmt.else_branch {
             self.analyze_statement(else_branch);
         }
@@ -530,7 +543,6 @@ impl SemanticAnalyzer {
                 );
             }
         }
-
         self.loop_depth += 1;
         self.analyze_statement(&while_stmt.body);
         self.loop_depth -= 1;
@@ -538,11 +550,9 @@ impl SemanticAnalyzer {
 
     fn analyze_switch(&mut self, switch_stmt: &SwitchStmt) {
         let _expr_type = self.analyze_expression(&switch_stmt.expression);
-
         for case in &switch_stmt.cases {
             self.analyze_statement(&case.body);
         }
-
         if let Some(default) = &switch_stmt.default {
             self.analyze_statement(default);
         }
@@ -550,11 +560,9 @@ impl SemanticAnalyzer {
 
     fn analyze_for(&mut self, for_stmt: &ForStmt) {
         self.symbol_table.enter_scope();
-
         if let Some(init) = &for_stmt.init {
             self.analyze_statement(init);
         }
-
         if let Some(condition) = &for_stmt.condition {
             let cond_type = self.analyze_expression(condition);
             if let Some(cond_type) = cond_type {
@@ -573,19 +581,15 @@ impl SemanticAnalyzer {
                 }
             }
         }
-
         if let Some(update) = &for_stmt.update {
             self.analyze_expression(update);
         }
-
         self.loop_depth += 1;
         self.analyze_statement(&for_stmt.body);
         self.loop_depth -= 1;
-
         self.symbol_table.exit_scope();
     }
 
-    /// Анализ return
     fn analyze_return(&mut self, return_stmt: &ReturnStmt) {
         let current_func_info = self.current_function.as_ref().map(|f| {
             (
@@ -597,7 +601,6 @@ impl SemanticAnalyzer {
         if let Some((func_name, expected_type)) = current_func_info {
             if let Some(value) = &return_stmt.value {
                 let actual_type = self.analyze_expression(value);
-
                 if let Some(actual_type) = actual_type {
                     if !self
                         .type_checker
@@ -649,9 +652,8 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Анализ выражения и возврат его типа
     fn analyze_expression(&mut self, expr: &Expression) -> Option<Type> {
-        let result = match expr {
+        match expr {
             Expression::Literal(lit) => self.analyze_literal(lit),
             Expression::Identifier(ident) => self.analyze_identifier(ident),
             Expression::Binary(binary) => self.analyze_binary(binary),
@@ -661,26 +663,31 @@ impl SemanticAnalyzer {
             Expression::StructAccess(access) => self.analyze_struct_access(access),
             Expression::Grouped(grouped) => self.analyze_expression(&grouped.expr),
             Expression::ArrayAccess(access) => self.analyze_array_access(access),
-        };
-
-        result
+            Expression::ArrayInitializer(arr) => {
+                for elem in &arr.elements {
+                    self.analyze_expression(elem);
+                }
+                arr.elements
+                    .first()
+                    .and_then(|e| self.analyze_expression(e))
+            }
+        }
     }
 
-    /// Анализ литерала
     fn analyze_literal(&self, lit: &Literal) -> Option<Type> {
         match lit.value {
             LiteralValue::Int(_) => Some(Type::Int),
             LiteralValue::Float(_) => Some(Type::Float),
             LiteralValue::Bool(_) => Some(Type::Bool),
-            LiteralValue::String(_) => Some(Type::String),
+            LiteralValue::String(_) => Some(Type::Pointer(Box::new(Type::Char))),
         }
     }
 
-    /// Анализ идентификатора
     fn analyze_identifier(&mut self, ident: &IdentifierExpr) -> Option<Type> {
         if let Some(symbol) = self.symbol_table.lookup(&ident.name) {
             Some(symbol.typ.clone())
         } else {
+            eprintln!("DEBUG: Undeclared identifier '{}'", ident.name);
             self.errors.add(
                 SemanticError::new(
                     SemanticErrorKind::UndeclaredIdentifier,
@@ -693,14 +700,11 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Анализ бинарной операции
     fn analyze_binary(&mut self, binary: &BinaryExpr) -> Option<Type> {
         let left_type = self.analyze_expression(&binary.left);
         let right_type = self.analyze_expression(&binary.right);
-
         if let (Some(left), Some(right)) = (left_type, right_type) {
             let op_type: BinaryOpType = (&binary.operator).into();
-
             if !self.type_checker.are_compatible_binary(&left, &right) {
                 self.errors.add(
                     SemanticError::new(
@@ -713,31 +717,25 @@ impl SemanticAnalyzer {
                 );
                 return None;
             }
-
             self.type_checker.binary_result_type(&left, &right, op_type)
         } else {
             None
         }
     }
 
-    /// Анализ унарной операции
     fn analyze_unary(&mut self, unary: &UnaryExpr) -> Option<Type> {
         let operand_type = self.analyze_expression(&unary.operand);
-
         if let Some(operand) = operand_type {
             let op_type: UnaryOpType = (&unary.operator).into();
-
             self.type_checker.unary_result_type(&operand, op_type)
         } else {
             None
         }
     }
 
-    /// Анализ присваивания
     fn analyze_assignment(&mut self, assign: &AssignmentExpr) -> Option<Type> {
         let target_type = self.analyze_expression(&assign.target);
         let value_type = self.analyze_expression(&assign.value);
-
         if let (Some(target), Some(value)) = (target_type, value_type) {
             if !self.type_checker.is_assignable(&target, &value) {
                 self.errors.add(
@@ -750,14 +748,12 @@ impl SemanticAnalyzer {
                     .with_suggestion(format!("Значение должно быть типа {}", target)),
                 );
             }
-
             Some(target)
         } else {
             None
         }
     }
 
-    /// Анализ вызова функции
     fn analyze_call(&mut self, call: &CallExpr) -> Option<Type> {
         let func_name = match &*call.callee {
             Expression::Identifier(ident) => ident.name.clone(),
@@ -781,12 +777,41 @@ impl SemanticAnalyzer {
                 Type::Function {
                     return_type,
                     param_types,
-                } => Some(((**return_type).clone(), param_types.clone())),
+                } => Some((
+                    (**return_type).clone(),
+                    param_types.clone(),
+                    symbol.is_variadic,
+                )),
                 _ => None,
             });
 
-        if let Some((return_type, param_types)) = func_info {
-            if call.arguments.len() != param_types.len() {
+        if let Some((return_type, param_types, is_variadic)) = func_info {
+            if call.arguments.len() < param_types.len() {
+                let expected_count = param_types.len();
+                let found_count = call.arguments.len();
+                self.errors.add(
+                    SemanticError::new(
+                        SemanticErrorKind::ArgumentCountMismatch,
+                        call.node.position(),
+                        format!(
+                            "Функция '{}' ожидает минимум {} аргументов, получено {}",
+                            func_name, expected_count, found_count
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Функция объявлена как {} ({}{}) -> {}",
+                        func_name,
+                        param_types
+                            .iter()
+                            .map(|t| t.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        if is_variadic { ", ..." } else { "" },
+                        return_type
+                    )),
+                );
+                return None;
+            } else if !is_variadic && call.arguments.len() > param_types.len() {
                 let expected_count = param_types.len();
                 let found_count = call.arguments.len();
                 self.errors.add(
@@ -812,22 +837,25 @@ impl SemanticAnalyzer {
                 return None;
             }
 
-            for (i, (arg, expected)) in call.arguments.iter().zip(param_types.iter()).enumerate() {
+            for (i, arg) in call.arguments.iter().enumerate() {
                 let arg_type = self.analyze_expression(arg);
                 if let Some(arg_type) = arg_type {
-                    if !self.type_checker.is_assignable(expected, &arg_type) {
-                        self.errors.add(
-                            SemanticError::new(
-                                SemanticErrorKind::ArgumentTypeMismatch,
-                                arg.node_position(),
-                                format!("Аргумент {} не соответствует типу параметра", i + 1),
-                            )
-                            .with_types(expected.clone(), arg_type.clone())
-                            .with_suggestion(format!(
-                                "Ожидался тип {}, получен {}",
-                                expected, arg_type
-                            )),
-                        );
+                    if i < param_types.len() {
+                        let expected = &param_types[i];
+                        if !self.type_checker.is_assignable(expected, &arg_type) {
+                            self.errors.add(
+                                SemanticError::new(
+                                    SemanticErrorKind::ArgumentTypeMismatch,
+                                    arg.node_position(),
+                                    format!("Аргумент {} не соответствует типу параметра", i + 1),
+                                )
+                                .with_types(expected.clone(), arg_type.clone())
+                                .with_suggestion(format!(
+                                    "Ожидался тип {}, получен {}",
+                                    expected, arg_type
+                                )),
+                            );
+                        }
                     }
                 }
             }
@@ -860,10 +888,8 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Анализ доступа к полю структуры
     fn analyze_struct_access(&mut self, access: &StructAccessExpr) -> Option<Type> {
         let object_type = self.analyze_expression(&access.object);
-
         if let Some(typ) = object_type {
             match typ {
                 Type::Struct(name) => {
@@ -932,18 +958,20 @@ impl SemanticAnalyzer {
     fn analyze_array_access(&mut self, access: &ArrayAccessExpr) -> Option<Type> {
         let array_type = self.analyze_expression(&access.array);
         let _index_type = self.analyze_expression(&access.index);
-
         if let Some(arr_typ) = array_type {
             match arr_typ {
                 Type::Array(inner, _) => Some(*inner),
+                Type::Pointer(inner) => Some(*inner),
                 _ => {
                     self.errors.add(
                         SemanticError::new(
                             SemanticErrorKind::TypeMismatch,
                             access.node.position(),
-                            format!("Индексация возможна только для массивов"),
+                            format!("Индексация возможна только для массивов и указателей"),
                         )
-                        .with_suggestion("Объект должен иметь тип массива".to_string()),
+                        .with_suggestion(
+                            "Объект должен иметь тип массива или указателя".to_string(),
+                        ),
                     );
                     None
                 }

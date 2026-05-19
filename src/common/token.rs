@@ -179,6 +179,14 @@ pub enum TokenKind {
     KwCase,
     /// `default` - ветка по умолчанию
     KwDefault,
+    /// `extern` - внешняя функция
+    KwExtern,
+    /// `...` - variadic аргументы
+    Ellipsis,
+    /// `char` - символьный тип
+    KwChar,
+    /// `&` - взятие адреса
+    Amp,
 
     /// Маркер конца файла
     ///
@@ -543,6 +551,10 @@ pub fn token_type_name(kind: &TokenKind) -> &'static str {
         TokenKind::KwSwitch => "KW_SWITCH",
         TokenKind::KwCase => "KW_CASE",
         TokenKind::KwDefault => "KW_DEFAULT",
+        TokenKind::KwExtern => "KW_EXTERN",
+        TokenKind::Ellipsis => "ELLIPSIS",
+        TokenKind::KwChar => "KW_CHAR",
+        TokenKind::Amp => "AMP",
     }
 }
 

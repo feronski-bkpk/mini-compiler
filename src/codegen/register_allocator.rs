@@ -52,20 +52,7 @@ impl Register {
     }
 
     pub fn all_allocatable() -> Vec<Register> {
-        vec![
-            Register::RBX,
-            Register::R12,
-            Register::R13,
-            Register::R14,
-            Register::R15,
-            Register::R8,
-            Register::R9,
-            Register::R10,
-            Register::R11,
-            Register::RDI,
-            Register::RSI,
-            Register::RCX,
-        ]
+        vec![Register::RBX, Register::R12]
     }
 }
 
@@ -112,6 +99,7 @@ pub struct AdvancedRegisterAllocator {
     intervals: Vec<LiveInterval>,
     spill_counter: i32,
     stats: RegisterStatistics,
+    min_spill_offset: i32,
 }
 
 impl AdvancedRegisterAllocator {
@@ -123,7 +111,12 @@ impl AdvancedRegisterAllocator {
             intervals: Vec::new(),
             spill_counter: 0,
             stats: RegisterStatistics::default(),
+            min_spill_offset: 0,
         }
+    }
+
+    pub fn set_min_spill_offset(&mut self, offset: i32) {
+        self.min_spill_offset = offset;
     }
 
     pub fn analyze_live_ranges(&mut self, instructions: &[crate::ir::IRInstruction]) {
@@ -211,11 +204,23 @@ impl AdvancedRegisterAllocator {
         self.stats = RegisterStatistics::default();
         self.stats.total_intervals = self.intervals.len();
 
+        eprintln!(
+            "Intervals: {:?}",
+            self.intervals
+                .iter()
+                .map(|i| format!("{}:[{}-{}]", i.var_name, i.start, i.end))
+                .collect::<Vec<_>>()
+        );
+        eprintln!("Free regs: {:?}", self.free_registers);
+
         for interval in self.intervals.clone() {
             self.expire_old_intervals(interval.start);
 
             if self.free_registers.is_empty() {
                 self.spill_at_interval(&interval);
+                if self.free_registers.is_empty() {
+                    self.spill_current(&interval);
+                }
             } else {
                 let reg = self.free_registers.pop().unwrap();
                 self.allocation
@@ -227,6 +232,18 @@ impl AdvancedRegisterAllocator {
 
         self.stats.allocation_success = self.stats.spilled_intervals == 0;
         self.stats.allocation_success
+    }
+
+    fn spill_current(&mut self, interval: &LiveInterval) {
+        self.spill_counter += 1;
+        let slot = -(self.min_spill_offset + self.spill_counter * 8);
+        let mut spilled = interval.clone();
+        spilled.spilled = true;
+        spilled.spill_slot = Some(slot);
+        self.allocation
+            .insert(spilled.var_name.clone(), Allocation::Stack(slot));
+        self.active.push(spilled);
+        self.stats.spilled_intervals += 1;
     }
 
     fn expire_old_intervals(&mut self, position: usize) {
@@ -259,7 +276,7 @@ impl AdvancedRegisterAllocator {
                     let mut spilled = spill_interval.clone();
                     spilled.spilled = true;
                     self.spill_counter += 1;
-                    spilled.spill_slot = Some(-(self.spill_counter * 8));
+                    spilled.spill_slot = Some(-(self.min_spill_offset + self.spill_counter * 8));
                     self.allocation.insert(
                         spilled.var_name.clone(),
                         Allocation::Stack(spilled.spill_slot.unwrap()),
@@ -276,7 +293,7 @@ impl AdvancedRegisterAllocator {
         }
 
         self.spill_counter += 1;
-        let slot = -(self.spill_counter * 8);
+        let slot = -(self.min_spill_offset + self.spill_counter * 8);
         let mut spilled = interval.clone();
         spilled.spilled = true;
         spilled.spill_slot = Some(slot);

@@ -84,6 +84,27 @@ impl DecoratedAstPrinter {
     fn format_declaration(&mut self, decl: &Declaration, symbol_table: &SymbolTable) -> String {
         match decl {
             Declaration::Function(func) => self.format_function(func, symbol_table),
+            Declaration::ExternFunction(ext) => {
+                let mut output = String::new();
+                output.push_str(&self.format_indent());
+                output.push_str(&format!(
+                    "ExternFunctionDecl: {} -> {} [line {}]:\n",
+                    ext.name, ext.return_type, ext.node.line
+                ));
+                self.indent_level += 1;
+                if !ext.parameters.is_empty() {
+                    output.push_str(&self.format_indent());
+                    output.push_str("Parameters:\n");
+                    self.indent_level += 1;
+                    for param in &ext.parameters {
+                        output.push_str(&self.format_indent());
+                        output.push_str(&format!("- {}: {}\n", param.name, param.param_type));
+                    }
+                    self.indent_level -= 1;
+                }
+                self.indent_level -= 1;
+                output
+            }
             Declaration::Struct(sd) => self.format_struct(sd),
             Declaration::Variable(var) => self.format_variable(var, true, symbol_table),
         }
@@ -360,6 +381,14 @@ impl DecoratedAstPrinter {
                 self.format_expression(&aa.index)
             ),
             Expression::Grouped(g) => format!("({})", self.format_expression(&g.expr)),
+            Expression::ArrayInitializer(arr) => {
+                let elems: Vec<String> = arr
+                    .elements
+                    .iter()
+                    .map(|e| self.format_expression(e))
+                    .collect();
+                format!("{{{}}}", elems.join(", "))
+            }
         }
     }
 

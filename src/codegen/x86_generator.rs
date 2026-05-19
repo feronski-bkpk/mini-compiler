@@ -4,9 +4,9 @@
 //! переменных в регистрах вместо стека, генерирует прямые условные
 //! переходы (je/jg/jl/jb/ja) и поддерживает глобальные переменные.
 
-use crate::ir::{FunctionIR, IRInstruction, Operand, ProgramIR};
 use super::register_allocator::{AdvancedRegisterAllocator, Allocation};
-use std::collections::HashMap;
+use crate::ir::{FunctionIR, IRInstruction, Operand, ProgramIR};
+use std::collections::{HashMap, HashSet};
 
 pub struct X86Generator {
     string_counter: usize,
@@ -19,6 +19,7 @@ pub struct X86Generator {
     param_offsets: HashMap<String, i32>,
     spill_total: i32,
     used_callee_saved: Vec<super::register_allocator::Register>,
+    alloca_vars: HashSet<String>,
 }
 
 impl X86Generator {
@@ -34,6 +35,7 @@ impl X86Generator {
             param_offsets: HashMap::new(),
             spill_total: 0,
             used_callee_saved: Vec::new(),
+            alloca_vars: HashSet::new(),
         }
     }
 
@@ -53,23 +55,24 @@ impl X86Generator {
         let mut text_output = String::new();
         text_output.push_str("section .text\n");
         text_output.push_str("default rel\n");
+        text_output.push_str("extern printf\n");
 
         for func in &program.functions {
-            text_output.push_str(&format!("global {}\n", func.name));
+            if !func.blocks.is_empty() {
+                text_output.push_str(&format!("global {}\n", func.name));
+            }
         }
         for (name, _) in &self.global_vars {
             text_output.push_str(&format!("global {}\n", name));
         }
-        text_output.push_str("global main\n");
-        text_output.push_str("global _start\n\n");
+        text_output.push_str("global main\n\n");
 
         for func in &program.functions {
-            text_output.push_str(&self.generate_function(func));
-            text_output.push_str("\n");
+            if !func.blocks.is_empty() {
+                text_output.push_str(&self.generate_function(func));
+                text_output.push_str("\n");
+            }
         }
-
-        text_output.push_str("_start:\n    call main\n    mov rdi, rax\n    call exit\n\n");
-        text_output.push_str("exit:\n    mov rax, 60\n    syscall\n");
 
         if has_data {
             data_section.push_str("section .data\n");
@@ -83,7 +86,11 @@ impl X86Generator {
                 has_data = true;
             }
             for (label, string) in &self.string_literals {
-                data_section.push_str(&format!("{}: {}\n", label, string));
+                if label.ends_with(':') {
+                    data_section.push_str(&format!("{} {}\n", label, string));
+                } else {
+                    data_section.push_str(&format!("{}: {}\n", label, string));
+                }
             }
         }
 
@@ -91,6 +98,7 @@ impl X86Generator {
         if has_data {
             output.push_str("\n");
         }
+        text_output.push_str("section .note.GNU-stack progbits\n");
         output.push_str(&text_output);
 
         let instruction_count = text_output
@@ -101,6 +109,7 @@ impl X86Generator {
                     && !t.starts_with(';')
                     && !t.starts_with("section")
                     && !t.starts_with("global")
+                    && !t.starts_with("extern")
                     && !t.starts_with("default")
                     && !t.ends_with(':')
             })
@@ -129,6 +138,7 @@ impl X86Generator {
         self.param_offsets.clear();
         self.spill_total = 0;
         self.used_callee_saved.clear();
+        self.alloca_vars.clear();
 
         let mut all_instructions: Vec<IRInstruction> = Vec::new();
         let mut block_order: Vec<String> = Vec::new();
@@ -142,6 +152,30 @@ impl X86Generator {
                 }
             }
         }
+
+        let callee_saved_estimate = 2 * 8;
+        let mut alloca_total: i32 = 0;
+        let mut alloca_offsets: HashMap<String, i32> = HashMap::new();
+        let mut current_alloca_offset: i32 = 0;
+
+        for instr in &all_instructions {
+            if let IRInstruction::Alloca(dest, size) = instr {
+                let name = match dest {
+                    Operand::Variable(n) | Operand::Temporary(n) => n.clone(),
+                    _ => continue,
+                };
+                let aligned_size = ((*size as i32) + 15) & !15;
+                alloca_offsets.insert(
+                    name.clone(),
+                    callee_saved_estimate + current_alloca_offset + aligned_size,
+                );
+                current_alloca_offset += aligned_size;
+                alloca_total = current_alloca_offset;
+            }
+        }
+
+        self.allocator
+            .set_min_spill_offset(alloca_total + callee_saved_estimate);
 
         self.allocator.reset();
         self.allocator.analyze_live_ranges(&all_instructions);
@@ -157,32 +191,47 @@ impl X86Generator {
         }
 
         let param_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
-        let mut param_offset = 16;
-        for (i, (param_name, _)) in func.parameters.iter().enumerate() {
-            self.param_offsets.insert(param_name.clone(), param_offset);
-            if i < param_regs.len() {
-                if let Some(alloc) = self.allocator.get_allocation(param_name) {
-                    if let Allocation::Register(reg) = alloc {
-                        output.push_str(&format!("    mov {}, {}\n", reg.name(), param_regs[i]));
-                    }
-                } else {
-                    output.push_str(&format!("    mov [rbp+{}], {}\n", param_offset, param_regs[i]));
-                }
-            }
+        let num_stack_params = func.parameters.len().saturating_sub(6);
+        
+        for i in 6..func.parameters.len() {
+            let stack_offset = 16 + ((i - 6) as i32 * 8);
+            self.param_offsets.insert(func.parameters[i].0.clone(), stack_offset);
+        }
+        
+        let mut param_offset = 16 + (num_stack_params as i32 * 8);
+        for i in 0..func.parameters.len().min(6) {
+            self.param_offsets.insert(func.parameters[i].0.clone(), param_offset);
+            output.push_str(&format!(
+                "    mov [rbp+{}], {}\n",
+                param_offset, param_regs[i]
+            ));
             param_offset += 8;
+        }
+
+        if alloca_total > 0 {
+            output.push_str(&format!("    sub rsp, {}\n", alloca_total));
+            for (name, offset) in &alloca_offsets {
+                self.alloca_vars.insert(name.clone());
+                self.spill_offsets.insert(name.clone(), -(*offset));
+            }
         }
 
         let spill_size = self.spill_total as usize;
         let aligned_spill = ((spill_size + 15) & !15) as i32;
-        if aligned_spill > 0 {
-            output.push_str(&format!("    sub rsp, {}\n", aligned_spill));
-            self.stack_size = aligned_spill as usize;
+        let extra_stack = aligned_spill + 1024;
+        if extra_stack > 0 {
+            output.push_str(&format!("    sub rsp, {}\n", extra_stack));
         }
+
+        self.stack_size = (alloca_total + extra_stack) as usize;
 
         for block_label in &block_order {
             if let Some(block) = func.blocks.get(block_label) {
                 output.push_str(&format!(".{}:\n", block_label));
                 for instr in &block.instructions {
+                    if matches!(instr, IRInstruction::Alloca(_, _)) {
+                        continue;
+                    }
                     let asm = self.generate_instruction(instr);
                     if !asm.is_empty() {
                         output.push_str(&asm);
@@ -232,7 +281,11 @@ impl X86Generator {
             IRInstruction::Move(d, s) => self.gen_move(d, s),
             IRInstruction::Return(Some(v)) => {
                 let vs = self.op(v);
-                let vq = if vs.starts_with('[') { format!("qword {}", vs) } else { vs.clone() };
+                let vq = if vs.starts_with('[') && !vs.starts_with("[rel") {
+                    format!("qword {}", vs)
+                } else {
+                    vs.clone()
+                };
                 let mut o = format!("    mov rax, {}\n", vq);
                 for reg in self.used_callee_saved.iter().rev() {
                     o.push_str(&format!("    pop {}\n", reg.name()));
@@ -258,14 +311,30 @@ impl X86Generator {
             IRInstruction::Xor(d, l, r) => self.gen_binop("xor", d, l, r),
             IRInstruction::Not(d, o) => {
                 let os = self.op(o);
-                let oq = if os.starts_with('[') { format!("qword {}", os) } else { os.clone() };
-                format!("    mov rax, {}\n    not rax\n    mov {}, rax\n", oq, self.op(d))
-            },
+                let oq = if os.starts_with('[') && !os.starts_with("[rel") {
+                    format!("qword {}", os)
+                } else {
+                    os.clone()
+                };
+                format!(
+                    "    mov rax, {}\n    not rax\n    mov {}, rax\n",
+                    oq,
+                    self.op(d)
+                )
+            }
             IRInstruction::Neg(d, o) => {
                 let os = self.op(o);
-                let oq = if os.starts_with('[') { format!("qword {}", os) } else { os.clone() };
-                format!("    mov rax, {}\n    neg rax\n    mov {}, rax\n", oq, self.op(d))
-            },
+                let oq = if os.starts_with('[') && !os.starts_with("[rel") {
+                    format!("qword {}", os)
+                } else {
+                    os.clone()
+                };
+                format!(
+                    "    mov rax, {}\n    neg rax\n    mov {}, rax\n",
+                    oq,
+                    self.op(d)
+                )
+            }
             IRInstruction::Jump(l) => format!("    jmp .{}\n", self.lbl(l)),
             IRInstruction::JumpIf(c, l) => self.gen_jump_if(c, l, false),
             IRInstruction::JumpIfNot(c, l) => self.gen_jump_if(c, l, true),
@@ -274,18 +343,42 @@ impl X86Generator {
                 let rs = self.op(r);
                 let tls = self.lbl(tl);
                 let fls = self.lbl(fl);
-                let lq = if ls.starts_with('[') { format!("qword {}", ls) } else { ls.clone() };
-                let rq = if rs.starts_with('[') { format!("qword {}", rs) } else { rs.clone() };
+                let lq = if ls.starts_with('[') && !ls.starts_with("[rel") {
+                    format!("qword {}", ls)
+                } else {
+                    ls.clone()
+                };
+                let rq = if rs.starts_with('[') && !rs.starts_with("[rel") {
+                    format!("qword {}", rs)
+                } else {
+                    rs.clone()
+                };
                 if *is_float {
                     format!(
                         "    movsd xmm0, {}\n    ucomisd xmm0, {}\n    {} .{}\n    jmp .{}\n",
                         lq, rq, jcc_str, tls, fls
                     )
                 } else {
-                    format!(
-                        "    cmp {}, {}\n    {} .{}\n    jmp .{}\n",
-                        lq, rq, jcc_str, tls, fls
-                    )
+                    if !ls.starts_with('[')
+                        && !rs.starts_with('[')
+                        && !ls.contains("r")
+                        && !rs.contains("r")
+                    {
+                        format!(
+                            "    mov rax, {}\n    cmp rax, {}\n    {} .{}\n    jmp .{}\n",
+                            lq, rq, jcc_str, tls, fls
+                        )
+                    } else if ls.starts_with('[') && rs.starts_with('[') {
+                        format!(
+                            "    mov rax, {}\n    cmp rax, {}\n    {} .{}\n    jmp .{}\n",
+                            lq, rq, jcc_str, tls, fls
+                        )
+                    } else {
+                        format!(
+                            "    cmp {}, {}\n    {} .{}\n    jmp .{}\n",
+                            lq, rq, jcc_str, tls, fls
+                        )
+                    }
                 }
             }
             IRInstruction::CmpEq(d, l, r) => self.gen_cmp_value("sete", d, l, r, false),
@@ -306,85 +399,233 @@ impl X86Generator {
             IRInstruction::CmpGeU(d, l, r) => self.gen_cmp_value("setae", d, l, r, false),
             IRInstruction::IntToFloat(d, s) => {
                 let ss = self.op(s);
-                let sq = if ss.starts_with('[') { format!("qword {}", ss) } else { ss.clone() };
+                let sq = if ss.starts_with('[') && !ss.starts_with("[rel") {
+                    format!("qword {}", ss)
+                } else {
+                    ss.clone()
+                };
                 format!("    cvtsi2sd xmm0, {}\n    movq {}, xmm0\n", sq, self.op(d))
             }
             IRInstruction::FloatToInt(d, s) => {
                 let ss = self.op(s);
-                let sq = if ss.starts_with('[') { format!("qword {}", ss) } else { ss.clone() };
+                let sq = if ss.starts_with('[') && !ss.starts_with("[rel") {
+                    format!("qword {}", ss)
+                } else {
+                    ss.clone()
+                };
                 format!("    cvttsd2si rax, {}\n    mov {}, rax\n", sq, self.op(d))
+            }
+            IRInstruction::AddrOf(d, src) => {
+                let ds = self.op(d);
+                let addr = self.addr_of(src);
+                format!("    lea rax, [{}]\n    mov {}, rax\n", addr, ds)
             }
             IRInstruction::ArrayLoad(dest, base, index) => {
                 let ds = self.op(dest);
                 let bs = self.op(base);
                 let istr = self.op(index);
-                format!(
-                    "    mov rax, {}\n    imul rax, 8\n    add rax, {}\n    mov rax, [rax]\n    mov {}, rax\n",
-                    istr, bs, ds
-                )
+                if self.alloca_vars.contains(self.get_operand_name(base)) {
+                    format!(
+                        "    mov rax, {}\n    imul rax, 8\n    lea rdx, [{}]\n    add rax, rdx\n    mov rax, [rax]\n    mov {}, rax\n",
+                        istr, bs, ds
+                    )
+                } else {
+                    format!(
+                        "    mov rax, {}\n    imul rax, 8\n    add rax, {}\n    mov rax, [rax]\n    mov {}, rax\n",
+                        istr, bs, ds
+                    )
+                }
             }
             IRInstruction::ArrayStore(base, index, value) => {
                 let bs = self.op(base);
                 let istr = self.op(index);
                 let vs = self.op(value);
-                format!(
-                    "    mov rax, {}\n    imul rax, 8\n    add rax, {}\n    mov qword [rax], {}\n",
-                    istr, bs, vs
-                )
+                let (addr_part, val_part) = if self
+                    .alloca_vars
+                    .contains(self.get_operand_name(base))
+                {
+                    (
+                        format!(
+                            "    mov rax, {}\n    imul rax, 8\n    lea rdx, [{}]\n    add rax, rdx\n",
+                            istr, bs
+                        ),
+                        if vs.starts_with('[') {
+                            format!("    mov rcx, qword {}\n    mov qword [rax], rcx\n", vs)
+                        } else {
+                            format!("    mov qword [rax], {}\n", vs)
+                        },
+                    )
+                } else {
+                    (
+                        format!(
+                            "    mov rax, {}\n    imul rax, 8\n    add rax, {}\n",
+                            istr, bs
+                        ),
+                        if vs.starts_with('[') {
+                            format!("    mov rcx, qword {}\n    mov qword [rax], rcx\n", vs)
+                        } else {
+                            format!("    mov qword [rax], {}\n", vs)
+                        },
+                    )
+                };
+                format!("{}{}", addr_part, val_part)
             }
             IRInstruction::Label(l) => format!(".{}:\n", self.lbl(l)),
             IRInstruction::Call(d, f, a) => self.gen_call(d, f, a),
             IRInstruction::Load(d, a) => {
                 let as_ = self.op(a);
-                let aq = if as_.starts_with('[') { format!("qword {}", as_) } else { as_.clone() };
-                format!("    mov rax, {}\n    mov {}, rax\n", aq, self.op(d))
-            },
-            IRInstruction::Store(a, s) => format!("    mov qword {}, {}\n", self.op(a), self.op(s)),
-            IRInstruction::Alloca(d, sz) => format!("    sub rsp, {}\n    mov {}, rsp\n", sz, self.op(d)),
+                if as_.starts_with('[') {
+                    format!(
+                        "    mov rax, qword {}\n    mov rax, [rax]\n    mov {}, rax\n",
+                        as_,
+                        self.op(d)
+                    )
+                } else {
+                    format!("    mov rax, [{}]\n    mov {}, rax\n", as_, self.op(d))
+                }
+            }
+            IRInstruction::Store(a, s) => {
+                let as_ = self.op(a);
+                let ss = self.op(s);
+                if as_.starts_with('[') {
+                    if ss.starts_with('[') {
+                        format!(
+                            "    mov rax, qword {}\n    mov rdx, qword {}\n    mov [rax], rdx\n",
+                            as_, ss
+                        )
+                    } else {
+                        format!("    mov rax, qword {}\n    mov [rax], {}\n", as_, ss)
+                    }
+                } else {
+                    if ss.starts_with('[') {
+                        format!("    mov rdx, qword {}\n    mov [{}], rdx\n", ss, as_)
+                    } else {
+                        format!("    mov [{}], {}\n", as_, ss)
+                    }
+                }
+            }
+            IRInstruction::Alloca(d, sz) => {
+                format!("    sub rsp, {}\n    mov {}, rsp\n", sz, self.op(d))
+            }
             _ => String::new(),
         }
     }
 
     fn gen_jump_if(&mut self, cond: &Operand, label: &Operand, negate: bool) -> String {
         if !negate {
-            if matches!(cond, Operand::BoolLiteral(true)) || matches!(cond, Operand::IntLiteral(v) if *v != 0) {
+            if matches!(cond, Operand::BoolLiteral(true))
+                || matches!(cond, Operand::IntLiteral(v) if *v != 0)
+            {
                 return format!("    jmp .{}\n", self.lbl(label));
             }
-            if matches!(cond, Operand::BoolLiteral(false)) || matches!(cond, Operand::IntLiteral(0)) {
+            if matches!(cond, Operand::BoolLiteral(false)) || matches!(cond, Operand::IntLiteral(0))
+            {
                 return String::new();
             }
         } else {
-            if matches!(cond, Operand::BoolLiteral(false)) || matches!(cond, Operand::IntLiteral(0)) {
+            if matches!(cond, Operand::BoolLiteral(false)) || matches!(cond, Operand::IntLiteral(0))
+            {
                 return format!("    jmp .{}\n", self.lbl(label));
             }
-            if matches!(cond, Operand::BoolLiteral(true)) || matches!(cond, Operand::IntLiteral(v) if *v != 0) {
+            if matches!(cond, Operand::BoolLiteral(true))
+                || matches!(cond, Operand::IntLiteral(v) if *v != 0)
+            {
                 return String::new();
             }
         }
         let cs = self.op(cond);
         let ls = self.lbl(label);
         let jcc = if negate { "je" } else { "jne" };
-        if cs.starts_with('[') {
-            format!("    cmp qword {}, 0\n    {} .{}\n", cs, jcc, ls)
+        let cq = if cs.starts_with('[') && !cs.starts_with("[rel") {
+            format!("qword {}", cs)
         } else {
-            format!("    cmp {}, 0\n    {} .{}\n", cs, jcc, ls)
-        }
+            cs.clone()
+        };
+        format!("    cmp {}, 0\n    {} .{}\n", cq, jcc, ls)
     }
 
-    fn gen_cmp_value(&mut self, set: &str, d: &Operand, l: &Operand, r: &Operand, flt: bool) -> String {
+    fn gen_cmp_value(
+        &mut self,
+        set: &str,
+        d: &Operand,
+        l: &Operand,
+        r: &Operand,
+        flt: bool,
+    ) -> String {
         let ls = self.op(l);
         let rs = self.op(r);
         let ds = self.op(d);
         let mut o = String::new();
         if flt {
-            o.push_str(&format!("    movsd xmm0, {}\n    ucomisd xmm0, {}\n", ls, rs));
+            o.push_str(&format!(
+                "    movsd xmm0, {}\n    ucomisd xmm0, {}\n",
+                ls, rs
+            ));
         } else {
-            let lq = if ls.starts_with('[') { format!("qword {}", ls) } else { ls.clone() };
-            let rq = if rs.starts_with('[') { format!("qword {}", rs) } else { rs.clone() };
-            o.push_str(&format!("    cmp {}, {}\n", lq, rq));
+            let lq = if ls.starts_with('[') && !ls.starts_with("[rel") {
+                format!("qword {}", ls)
+            } else {
+                ls.clone()
+            };
+            let rq = if rs.starts_with('[') && !rs.starts_with("[rel") {
+                format!("qword {}", rs)
+            } else {
+                rs.clone()
+            };
+            if ls.starts_with('[') && rs.starts_with('[') {
+                o.push_str(&format!("    mov rax, {}\n    cmp rax, {}\n", lq, rq));
+            } else {
+                o.push_str(&format!("    cmp {}, {}\n", lq, rq));
+            }
         }
-        o.push_str(&format!("    {} al\n    movzx rax, al\n    mov {}, rax\n", set, ds));
+        o.push_str(&format!(
+            "    {} al\n    movzx rax, al\n    mov {}, rax\n",
+            set, ds
+        ));
         o
+    }
+
+    fn addr_of(&mut self, op: &Operand) -> String {
+        match op {
+            Operand::Variable(n) | Operand::Temporary(n) => {
+                if self.global_vars.iter().any(|(name, _)| name == n) {
+                    return format!("rel {}", n);
+                }
+                if self.alloca_vars.contains(n) {
+                    if let Some(&off) = self.spill_offsets.get(n) {
+                        if off < 0 {
+                            format!("rbp-{}", -off)
+                        } else {
+                            format!("rbp+{}", off)
+                        }
+                    } else {
+                        format!("rbp-8")
+                    }
+                } else if let Some(&off) = self.param_offsets.get(n) {
+                    format!("rbp+{}", off)
+                } else if let Some(alloc) = self.allocator.get_allocation(n) {
+                    match alloc {
+                        Allocation::Stack(offset) => {
+                            if *offset < 0 {
+                                format!("rbp-{}", -offset)
+                            } else {
+                                format!("rbp+{}", offset)
+                            }
+                        }
+                        _ => format!("rbp-8"),
+                    }
+                } else if let Some(&off) = self.spill_offsets.get(n) {
+                    if off < 0 {
+                        format!("rbp-{}", -off)
+                    } else {
+                        format!("rbp+{}", off)
+                    }
+                } else {
+                    format!("rbp-8")
+                }
+            }
+            _ => self.op(op),
+        }
     }
 
     fn gen_move(&mut self, d: &Operand, s: &Operand) -> String {
@@ -393,7 +634,8 @@ impl X86Generator {
         if let Operand::FloatLiteral(v) = s {
             let lb = format!("L_flt{}", self.string_counter);
             self.string_counter += 1;
-            self.string_literals.push((lb.clone(), format!("dq {}", v)));
+            self.string_literals
+                .push((format!("{}:", lb), format!("dq {}", v)));
             return format!("    movsd xmm0, qword [{}]\n    movq {}, xmm0\n", lb, ds);
         }
         if !ds.starts_with('[') && !ss.starts_with('[') {
@@ -412,23 +654,57 @@ impl X86Generator {
         let ls = self.op(l);
         let rs = self.op(r);
         let ds = self.op(d);
+        
+        if (ls.starts_with("rbp-") || ls.starts_with("rbp+")) && op == "add" {
+            let rq = if rs.starts_with('[') && !rs.starts_with("[rel") { format!("qword {}", rs) } else { rs.clone() };
+            let dq = if ds.starts_with('[') { format!("qword {}", ds) } else { ds.clone() };
+            return format!("    lea rax, [{}]\n    add rax, {}\n    mov {}, rax\n", ls, rq, dq);
+        }
+        
         let is_float = matches!(l, Operand::FloatLiteral(_))
             || matches!(r, Operand::FloatLiteral(_))
-            || ls.contains("xmm") || rs.contains("xmm");
+            || ls.contains("xmm")
+            || rs.contains("xmm");
         if is_float {
-            let op_f = match op { "add" => "addsd", "sub" => "subsd", "imul" => "mulsd", _ => op };
-            return format!("    movsd xmm0, {}\n    {} xmm0, {}\n    movq {}, xmm0\n", ls, op_f, rs, ds);
+            let op_f = match op {
+                "add" => "addsd",
+                "sub" => "subsd",
+                "imul" => "mulsd",
+                _ => op,
+            };
+            return format!(
+                "    movsd xmm0, {}\n    {} xmm0, {}\n    movq {}, xmm0\n",
+                ls, op_f, rs, ds
+            );
         }
-        let lq = if ls.starts_with('[') { format!("qword {}", ls) } else { ls.clone() };
-        let rq = if rs.starts_with('[') { format!("qword {}", rs) } else { rs.clone() };
+        let lq = if ls.starts_with('[') && !ls.starts_with("[rel") {
+            format!("qword {}", ls)
+        } else {
+            ls.clone()
+        };
+        let rq = if rs.starts_with('[') && !rs.starts_with("[rel") {
+            format!("qword {}", rs)
+        } else {
+            rs.clone()
+        };
         if !ds.starts_with('[') && ls == ds {
             return format!("    {} {}, {}\n", op, ds, rq);
         }
-        if !ds.starts_with('[') && rs == ds && (op == "add" || op == "imul" || op == "and" || op == "or" || op == "xor") {
+        if !ds.starts_with('[')
+            && rs == ds
+            && (op == "add" || op == "imul" || op == "and" || op == "or" || op == "xor")
+        {
             return format!("    {} {}, {}\n", op, ds, lq);
         }
-        let dq = if ds.starts_with('[') { format!("qword {}", ds) } else { ds.clone() };
-        format!("    mov rax, {}\n    {} rax, {}\n    mov {}, rax\n", lq, op, rq, dq)
+        let dq = if ds.starts_with('[') {
+            format!("qword {}", ds)
+        } else {
+            ds.clone()
+        };
+        format!(
+            "    mov rax, {}\n    {} rax, {}\n    mov {}, rax\n",
+            lq, op, rq, dq
+        )
     }
 
     fn gen_div(&mut self, d: &Operand, l: &Operand, r: &Operand, m: bool) -> String {
@@ -436,8 +712,16 @@ impl X86Generator {
         let rs = self.op(r);
         let ds = self.op(d);
         let rr = if m { "rdx" } else { "rax" };
-        let lq = if ls.starts_with('[') { format!("qword {}", ls) } else { ls.clone() };
-        let rq = if rs.starts_with('[') { format!("qword {}", rs) } else { rs.clone() };
+        let lq = if ls.starts_with('[') && !ls.starts_with("[rel") {
+            format!("qword {}", ls)
+        } else {
+            ls.clone()
+        };
+        let rq = if rs.starts_with('[') && !rs.starts_with("[rel") {
+            format!("qword {}", rs)
+        } else {
+            rs.clone()
+        };
         format!(
             "    push r12\n    mov rax, {}\n    cdq\n    mov r12, {}\n    idiv r12\n    mov {}, {}\n    pop r12\n",
             lq, rq, ds, rr
@@ -446,24 +730,57 @@ impl X86Generator {
 
     fn gen_call(&mut self, d: &Operand, f: &Operand, a: &[Operand]) -> String {
         let mut o = String::new();
+        let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+        let arg_strs: Vec<String> = a.iter().map(|arg| self.op(arg)).collect();
+        let fn_str = self.op(f);
+        let dest_str = self.op(d);
+        let num_args = a.len();
+        let num_reg_args = num_args.min(6);
+
         o.push_str("    push rcx\n    push rdx\n    push rsi\n    push rdi\n");
         o.push_str("    push r8\n    push r9\n    push r10\n    push r11\n");
-        let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
-        for (i, arg) in a.iter().enumerate() {
-            if i < 6 {
-                o.push_str(&format!("    mov {}, {}\n", regs[i], self.op(arg)));
-            } else {
-                o.push_str(&format!("    push {}\n", self.op(arg)));
-            }
+        o.push_str("    push r12\n    push rbx\n");
+
+        for i in (num_reg_args..num_args).rev() {
+            Self::push_arg(&mut o, &arg_strs[i]);
         }
-        o.push_str(&format!("    call {}\n", self.op(f)));
-        if a.len() > 6 {
-            o.push_str(&format!("    add rsp, {}\n", (a.len() - 6) * 8));
+        for i in (0..num_reg_args).rev() {
+            Self::push_arg(&mut o, &arg_strs[i]);
         }
-        o.push_str(&format!("    mov {}, rax\n", self.op(d)));
+        for i in 0..num_reg_args {
+            o.push_str(&format!("    pop {}\n", regs[i]));
+        }
+
+        o.push_str("    xor eax, eax\n");
+        o.push_str(&format!("    call {}\n", fn_str));
+        o.push_str("    mov r15, rax\n");
+
+        if num_args > 6 {
+            o.push_str(&format!("    add rsp, {}\n", (num_args - 6) * 8));
+        }
+
+        o.push_str("    pop rbx\n    pop r12\n");
         o.push_str("    pop r11\n    pop r10\n    pop r9\n    pop r8\n");
         o.push_str("    pop rdi\n    pop rsi\n    pop rdx\n    pop rcx\n");
+
+        o.push_str(&format!("    mov {}, r15\n", dest_str));
+
         o
+    }
+
+    fn push_arg(o: &mut String, arg: &str) {
+        if arg.starts_with("L_str") {
+            o.push_str(&format!("    lea rax, [rel {}]\n", arg));
+            o.push_str("    push rax\n");
+        } else if arg.starts_with("rbp-") || arg.starts_with("rbp+") {
+            o.push_str(&format!("    lea rax, [{}]\n", arg));
+            o.push_str("    push rax\n");
+        } else if arg.starts_with('[') {
+            o.push_str(&format!("    mov rax, qword {}\n", arg));
+            o.push_str("    push rax\n");
+        } else {
+            o.push_str(&format!("    push {}\n", arg));
+        }
     }
 
     fn op(&mut self, op: &Operand) -> String {
@@ -472,24 +789,59 @@ impl X86Generator {
                 if self.global_vars.iter().any(|(name, _)| name == n) {
                     return format!("[rel {}]", n);
                 }
-                if let Some(alloc) = self.allocator.get_allocation(n) {
-                    match alloc {
-                        Allocation::Register(reg) => reg.name().to_string(),
-                        Allocation::Stack(offset) => {
-                            if *offset < 0 { format!("[rbp-{}]", -offset) }
-                            else { format!("[rbp+{}]", offset) }
+                if let Some(&off) = self.param_offsets.get(n) {
+                    return format!("[rbp+{}]", off);
+                }
+                if self.alloca_vars.contains(n) {
+                    if let Some(&off) = self.spill_offsets.get(n) {
+                        if off < 0 {
+                            format!("rbp-{}", -off)
+                        } else {
+                            format!("rbp+{}", off)
                         }
+                    } else {
+                        format!("rbp-8")
                     }
-                } else if let Some(&off) = self.param_offsets.get(n) {
-                    format!("[rbp+{}]", off)
-                } else if let Some(&off) = self.spill_offsets.get(n) {
-                    if off < 0 { format!("[rbp-{}]", -off) }
-                    else { format!("[rbp+{}]", off) }
                 } else {
-                    let off = self.spill_offsets.len() as i32 * 8 + 8;
-                    let slot = format!("[rbp-{}]", off);
-                    self.spill_offsets.insert(n.to_string(), -(off));
-                    slot
+                    if let Some(alloc) = self.allocator.get_allocation(n) {
+                        match alloc {
+                            Allocation::Register(reg) => reg.name().to_string(),
+                            Allocation::Stack(offset) => {
+                                if *offset < 0 {
+                                    format!("[rbp-{}]", -offset)
+                                } else {
+                                    format!("[rbp+{}]", offset)
+                                }
+                            }
+                        }
+                    } else if let Some(&off) = self.spill_offsets.get(n) {
+                        if off < 0 {
+                            format!("[rbp-{}]", -off)
+                        } else {
+                            format!("[rbp+{}]", off)
+                        }
+                    } else {
+                        let alloca_end = self
+                            .alloca_vars
+                            .iter()
+                            .filter_map(|name| self.spill_offsets.get(name))
+                            .map(|&o| -o)
+                            .max()
+                            .unwrap_or(0);
+                        let callee_saved_size = self.used_callee_saved.len() as i32 * 8;
+                        let mut off = alloca_end.max(callee_saved_size).max(self.spill_total) + 8;
+                        if off < 8 {
+                            off = 8;
+                        }
+                        while self.spill_offsets.values().any(|&v| v == -(off))
+                            || self.param_offsets.values().any(|&v| v == off)
+                        {
+                            off += 8;
+                        }
+                        let slot = format!("[rbp-{}]", off);
+                        self.spill_offsets.insert(n.to_string(), -(off));
+                        slot
+                    }
                 }
             }
             Operand::Label(n) => n.clone(),
@@ -497,22 +849,58 @@ impl X86Generator {
             Operand::FloatLiteral(v) => {
                 let lb = format!("L_flt{}", self.string_counter);
                 self.string_counter += 1;
-                self.string_literals.push((lb.clone(), format!("dq {}", v)));
+                self.string_literals
+                    .push((format!("{}:", lb), format!("dq {}", v)));
                 format!("qword [{}]", lb)
             }
-            Operand::BoolLiteral(v) => if *v { "1".to_string() } else { "0".to_string() },
+            Operand::BoolLiteral(v) => {
+                if *v {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                }
+            }
             Operand::StringLiteral(s) => {
-                let lb = format!(".L.str{}", self.string_counter);
+                let lb = format!("L_str{}", self.string_counter);
                 self.string_counter += 1;
-                self.string_literals.push((lb.clone(), format!("db {}", self.escape_string(s))));
+                let s = s
+                    .replace("\\n", "\n")
+                    .replace("\\t", "\t")
+                    .replace("\\r", "\r")
+                    .replace("\\\\", "\\")
+                    .replace("\\\"", "\"");
+                let parts: Vec<&str> = s.split('\n').collect();
+                let mut db_parts = Vec::new();
+                for (i, part) in parts.iter().enumerate() {
+                    if i > 0 {
+                        db_parts.push("10".to_string());
+                    }
+                    if !part.is_empty() {
+                        db_parts.push(format!(
+                            "\"{}\"",
+                            part.replace('\\', "\\\\").replace('"', "\\\"")
+                        ));
+                    }
+                }
+                db_parts.push("0".to_string());
+                self.string_literals
+                    .push((format!("{}:", lb), format!("db {}", db_parts.join(", "))));
                 lb
             }
             Operand::MemoryAddress { base, offset } => {
-                if *offset == 0 { format!("[{}]", base) }
-                else if *offset > 0 { format!("[{}+{}]", base, offset) }
-                else { format!("[{}-{}]", base, -offset) }
+                if *offset == 0 {
+                    format!("[{}]", base)
+                } else if *offset > 0 {
+                    format!("[{}+{}]", base, offset)
+                } else {
+                    format!("[{}-{}]", base, -offset)
+                }
             }
-            Operand::ArrayAccess { base, index, stride: _ } => {
+            Operand::ArrayAccess {
+                base,
+                index,
+                stride: _,
+            } => {
                 format!("[{} + {}*8]", base, self.op(index))
             }
         }
@@ -524,23 +912,10 @@ impl X86Generator {
             _ => format!("{:?}", l),
         }
     }
-
-    fn escape_string(&self, s: &str) -> String {
-        let mut e = String::new();
-        for c in s.chars() {
-            match c {
-                '"' => e.push_str("\\\""),
-                '\\' => e.push_str("\\\\"),
-                '\n' => e.push_str("\\n"),
-                '\r' => e.push_str("\\r"),
-                '\t' => e.push_str("\\t"),
-                _ => e.push(c),
-            }
-        }
-        format!("\"{}\"", e)
-    }
 }
 
 impl Default for X86Generator {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

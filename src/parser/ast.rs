@@ -8,19 +8,15 @@ use std::fmt;
 /// Базовый узел AST с информацией о позиции в исходном коде
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
-    /// Строка в исходном файле (1-индексация)
     pub line: usize,
-    /// Колонка в исходном файле (1-индексация)
     pub column: usize,
 }
 
 impl Node {
-    /// Создает новый узел с указанной позицией
     pub fn new(line: usize, column: usize) -> Self {
         Self { line, column }
     }
 
-    /// Возвращает позицию узла
     pub fn position(&self) -> Position {
         Position::new(self.line, self.column)
     }
@@ -46,6 +42,7 @@ impl Program {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Declaration {
     Function(FunctionDecl),
+    ExternFunction(ExternFunctionDecl),
     Struct(StructDecl),
     Variable(VarDecl),
 }
@@ -58,6 +55,7 @@ pub struct FunctionDecl {
     pub return_type: Type,
     pub parameters: Vec<Param>,
     pub body: BlockStmt,
+    pub is_variadic: bool,
 }
 
 impl FunctionDecl {
@@ -66,6 +64,7 @@ impl FunctionDecl {
         return_type: Type,
         parameters: Vec<Param>,
         body: BlockStmt,
+        is_variadic: bool,
         line: usize,
         column: usize,
     ) -> Self {
@@ -75,7 +74,49 @@ impl FunctionDecl {
             return_type,
             parameters,
             body,
+            is_variadic,
         }
+    }
+}
+
+/// Объявление внешней функции
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternFunctionDecl {
+    pub node: Node,
+    pub name: String,
+    pub return_type: Type,
+    pub parameters: Vec<Param>,
+    pub is_variadic: bool,
+}
+
+impl ExternFunctionDecl {
+    pub fn new(
+        name: String,
+        return_type: Type,
+        parameters: Vec<Param>,
+        is_variadic: bool,
+        line: usize,
+        column: usize,
+    ) -> Self {
+        Self {
+            node: Node::new(line, column),
+            name,
+            return_type,
+            parameters,
+            is_variadic,
+        }
+    }
+
+    pub fn to_function_decl(&self) -> FunctionDecl {
+        FunctionDecl::new(
+            self.name.clone(),
+            self.return_type.clone(),
+            self.parameters.clone(),
+            BlockStmt::new(vec![], self.node.line, self.node.column),
+            self.is_variadic,
+            self.node.line,
+            self.node.column,
+        )
     }
 }
 
@@ -123,8 +164,10 @@ pub enum Type {
     Bool,
     Void,
     String,
+    Char,
     Struct(String),
     Inferred,
+    Pointer(Box<Type>),
     Array(Box<Type>, Option<i32>),
 }
 
@@ -136,8 +179,10 @@ impl fmt::Display for Type {
             Type::Bool => write!(f, "bool"),
             Type::Void => write!(f, "void"),
             Type::String => write!(f, "string"),
+            Type::Char => write!(f, "char"),
             Type::Struct(name) => write!(f, "struct {}", name),
             Type::Inferred => write!(f, "var"),
+            Type::Pointer(inner) => write!(f, "{}*", inner),
             Type::Array(inner, size) => {
                 if let Some(s) = size {
                     write!(f, "{}[{}]", inner, s)
@@ -150,29 +195,28 @@ impl fmt::Display for Type {
 }
 
 impl Type {
-    /// Проверяет, является ли тип void
     pub fn is_void(&self) -> bool {
         matches!(self, Type::Void)
     }
 
-    /// Проверяет, является ли тип числовым
     pub fn is_numeric(&self) -> bool {
         matches!(self, Type::Int | Type::Float)
     }
 
-    /// Проверяет, является ли тип целочисленным
     pub fn is_integer(&self) -> bool {
-        matches!(self, Type::Int)
+        matches!(self, Type::Int | Type::Char)
     }
 
-    /// Проверяет, является ли тип логическим
     pub fn is_boolean(&self) -> bool {
         matches!(self, Type::Bool)
     }
 
-    /// Проверяет, является ли тип массивом
     pub fn is_array(&self) -> bool {
         matches!(self, Type::Array(_, _))
+    }
+
+    pub fn is_pointer(&self) -> bool {
+        matches!(self, Type::Pointer(_))
     }
 }
 
@@ -218,7 +262,7 @@ impl VarDecl {
     }
 }
 
-/// Инструкция-выражение (expression statement)
+/// Инструкция-выражение
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExprStmt {
     pub node: Node,
@@ -234,7 +278,7 @@ impl ExprStmt {
     }
 }
 
-/// Пустая инструкция (;)
+/// Пустая инструкция
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmptyStmt {
     pub node: Node,
@@ -248,7 +292,7 @@ impl EmptyStmt {
     }
 }
 
-/// Блок инструкций { ... }
+/// Блок инструкций
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockStmt {
     pub node: Node,
@@ -264,7 +308,7 @@ impl BlockStmt {
     }
 }
 
-/// Условная инструкция if-else
+/// if-else
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfStmt {
     pub node: Node,
@@ -337,7 +381,7 @@ impl ForStmt {
     }
 }
 
-/// Инструкция возврата return
+/// return
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReturnStmt {
     pub node: Node,
@@ -353,7 +397,7 @@ impl ReturnStmt {
     }
 }
 
-/// Инструкция break
+/// break
 #[derive(Debug, Clone, PartialEq)]
 pub struct BreakStmt {
     pub node: Node,
@@ -367,7 +411,7 @@ impl BreakStmt {
     }
 }
 
-/// Инструкция continue
+/// continue
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContinueStmt {
     pub node: Node,
@@ -381,7 +425,7 @@ impl ContinueStmt {
     }
 }
 
-/// Оператор switch
+/// switch
 #[derive(Debug, Clone, PartialEq)]
 pub struct SwitchStmt {
     pub node: Node,
@@ -407,7 +451,7 @@ impl SwitchStmt {
     }
 }
 
-/// Ветка case в switch
+/// case
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaseStmt {
     pub node: Node,
@@ -437,10 +481,10 @@ pub enum Expression {
     StructAccess(StructAccessExpr),
     ArrayAccess(ArrayAccessExpr),
     Grouped(GroupedExpr),
+    ArrayInitializer(ArrayInitializerExpr),
 }
 
 impl Expression {
-    /// Возвращает позицию выражения (узел, с которого начинается выражение)
     pub fn node_position(&self) -> Position {
         match self {
             Expression::Literal(lit) => lit.node.position(),
@@ -452,6 +496,7 @@ impl Expression {
             Expression::StructAccess(access) => access.node.position(),
             Expression::ArrayAccess(access) => access.node.position(),
             Expression::Grouped(grouped) => grouped.node.position(),
+            Expression::ArrayInitializer(init) => init.node.position(),
         }
     }
 }
@@ -632,7 +677,7 @@ impl ArrayAccessExpr {
     }
 }
 
-/// Сгруппированное выражение (в скобках)
+/// Сгруппированное выражение
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupedExpr {
     pub node: Node,
@@ -644,6 +689,22 @@ impl GroupedExpr {
         Self {
             node: Node::new(line, column),
             expr: Box::new(expr),
+        }
+    }
+}
+
+/// Инициализатор массива
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrayInitializerExpr {
+    pub node: Node,
+    pub elements: Vec<Expression>,
+}
+
+impl ArrayInitializerExpr {
+    pub fn new(elements: Vec<Expression>, line: usize, column: usize) -> Self {
+        Self {
+            node: Node::new(line, column),
+            elements,
         }
     }
 }
@@ -696,6 +757,8 @@ pub enum UnaryOp {
     PostIncrement,
     PreDecrement,
     PostDecrement,
+    Deref,
+    AddrOf,
 }
 
 impl fmt::Display for UnaryOp {
@@ -708,6 +771,8 @@ impl fmt::Display for UnaryOp {
             UnaryOp::PostIncrement => write!(f, "++ (postfix)"),
             UnaryOp::PreDecrement => write!(f, "-- (prefix)"),
             UnaryOp::PostDecrement => write!(f, "-- (postfix)"),
+            UnaryOp::Deref => write!(f, "*"),
+            UnaryOp::AddrOf => write!(f, "&"),
         }
     }
 }

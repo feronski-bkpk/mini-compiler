@@ -194,6 +194,10 @@ enum Commands {
         #[arg(long)]
         optimize: bool,
 
+        /// Применить инлайнинг функций
+        #[arg(long)]
+        inline: bool,
+
         /// Определить макросы для препроцессора
         #[arg(short = 'D', long)]
         defines: Vec<String>,
@@ -220,6 +224,10 @@ enum Commands {
         /// Определить макросы для препроцессора
         #[arg(short = 'D', long)]
         defines: Vec<String>,
+
+        /// Применить инлайнинг функций
+        #[arg(long)]
+        inline: bool,
     },
 
     /// Проверить синтаксис исходного кода
@@ -414,6 +422,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ir_format,
             stats,
             optimize,
+            inline,
             defines,
         } => handle_ir_command(
             &input,
@@ -421,6 +430,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ir_format,
             stats,
             optimize,
+            inline,
             defines,
             cli.verbose,
         ),
@@ -429,9 +439,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             input,
             output,
             optimize,
+            inline,
             stats,
             defines,
-        } => handle_codegen_command(&input, &output, optimize, stats, defines, cli.verbose),
+        } => handle_codegen_command(
+            &input,
+            &output,
+            optimize,
+            inline,
+            stats,
+            defines,
+            cli.verbose,
+        ),
 
         Commands::Check {
             input,
@@ -1339,6 +1358,7 @@ fn handle_ir_command(
     format: AstFormat,
     stats: bool,
     optimize: bool,
+    inline: bool,
     defines: Vec<String>,
     verbose: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1346,6 +1366,9 @@ fn handle_ir_command(
         println!("Генерация IR для файла: {}", input.display());
         if optimize {
             println!("Оптимизация включена");
+        }
+        if inline {
+            println!("Инлайнинг включен");
         }
         if !defines.is_empty() {
             println!("Макросы: {:?}", defines);
@@ -1381,6 +1404,25 @@ fn handle_ir_command(
     if stats {
         println!("{}", minic::ir::IRPrinter::print_stats(&ir_program));
         return Ok(());
+    }
+
+    if inline {
+        if verbose {
+            println!("Применение инлайнинга...");
+        }
+        let mut inline_opt =
+            minic::ir::inline_optimizer::InlineOptimizer::new().with_max_instructions(20);
+        let inline_stats = inline_opt.optimize(&mut ir_program);
+        if verbose {
+            println!("Инлайнинг завершен:");
+            println!(
+                "  Функций рассмотрено: {}",
+                inline_stats.functions_considered
+            );
+            println!("  Вызовов встроено: {}", inline_stats.call_sites_inlined);
+            println!("  Инструкций до: {}", inline_stats.instructions_before);
+            println!("  Инструкций после: {}", inline_stats.instructions_after);
+        }
     }
 
     if optimize {
@@ -1582,6 +1624,7 @@ fn handle_codegen_command(
     input: &Path,
     output: &Path,
     optimize: bool,
+    inline: bool,
     stats: bool,
     defines: Vec<String>,
     verbose: bool,
@@ -1590,6 +1633,9 @@ fn handle_codegen_command(
         println!("Генерация x86-64 кода для: {}", input.display());
         if optimize {
             println!("Оптимизация включена");
+        }
+        if inline {
+            println!("Инлайнинг включен");
         }
     }
 
@@ -1619,6 +1665,23 @@ fn handle_codegen_command(
 
     let mut ir_program = ir_program.ok_or("Не удалось сгенерировать IR")?;
 
+    if inline {
+        if verbose {
+            println!("Применение инлайнинга...");
+        }
+        let mut inline_opt =
+            minic::ir::inline_optimizer::InlineOptimizer::new().with_max_instructions(20);
+        let inline_stats = inline_opt.optimize(&mut ir_program);
+        if verbose {
+            println!(
+                "Инлайнинг: {} вызовов встроено, инструкций: {} → {}",
+                inline_stats.call_sites_inlined,
+                inline_stats.instructions_before,
+                inline_stats.instructions_after
+            );
+        }
+    }
+
     if optimize {
         if verbose {
             println!("Применение оптимизаций IR...");
@@ -1644,21 +1707,6 @@ fn handle_codegen_command(
 
     if verbose {
         println!("Ассемблерный код записан в: {}", output.display());
-        println!("\nДля сборки выполните:");
-        println!(
-            "  nasm -f elf64 {} -o {}.o",
-            output.display(),
-            output.display()
-        );
-        println!(
-            "  ld -o program {}.o {}",
-            output.display(),
-            if cfg!(target_os = "linux") {
-                "src/runtime/runtime.o"
-            } else {
-                ""
-            }
-        );
     }
 
     Ok(())

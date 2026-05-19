@@ -61,6 +61,7 @@ impl IRGenerator {
                 Declaration::Function(func) => func_list.push(func),
                 Declaration::Struct(_) => {}
                 Declaration::Variable(var) => global_vars.push(var),
+                Declaration::ExternFunction(_) => {}
             }
         }
         for var in global_vars {
@@ -84,7 +85,7 @@ impl IRGenerator {
 
     fn generate_function(&mut self, func: &FunctionDecl) {
         let return_type = func.return_type.to_string();
-        let mut func_ir = FunctionIR::new(func.name.clone(), return_type);
+        let mut func_ir = FunctionIR::new(func.name.clone(), return_type.clone());
         for param in &func.parameters {
             let param_type = param.param_type.to_string();
             func_ir.parameters.push((param.name.clone(), param_type));
@@ -102,6 +103,13 @@ impl IRGenerator {
         let entry_label = current_block.label.clone();
         for stmt in &func.body.statements {
             self.generate_statement(stmt, &mut current_block, &mut all_blocks);
+        }
+        if !current_block.is_terminator() {
+            if return_type == "void" {
+                current_block.add_instruction(IRInstruction::Return(None));
+            } else {
+                current_block.add_instruction(IRInstruction::Return(Some(Operand::IntLiteral(0))));
+            }
         }
         all_blocks.push(current_block);
         func_ir.set_entry(entry_label);
@@ -133,12 +141,37 @@ impl IRGenerator {
             Statement::VariableDecl(var) => {
                 self.current_locals
                     .push((var.name.clone(), var.var_type.to_string()));
+
+                if let crate::parser::ast::Type::Array(_, size) = &var.var_type {
+                    let array_size = size.unwrap_or(0) as u32 * 8;
+                    if array_size > 0 {
+                        current_block.add_instruction(IRInstruction::Alloca(
+                            Operand::Variable(var.name.clone()),
+                            array_size,
+                        ));
+                    }
+                }
+
                 if let Some(init) = &var.initializer {
-                    let value = self.generate_expression(init, current_block, all_blocks);
-                    current_block.add_instruction(IRInstruction::Move(
-                        Operand::Variable(var.name.clone()),
-                        value,
-                    ));
+                    match init.as_ref() {
+                        Expression::ArrayInitializer(arr_init) => {
+                            for (i, elem) in arr_init.elements.iter().enumerate() {
+                                let val = self.generate_expression(elem, current_block, all_blocks);
+                                current_block.add_instruction(IRInstruction::ArrayStore(
+                                    Operand::Variable(var.name.clone()),
+                                    Operand::IntLiteral(i as i32),
+                                    val,
+                                ));
+                            }
+                        }
+                        _ => {
+                            let value = self.generate_expression(init, current_block, all_blocks);
+                            current_block.add_instruction(IRInstruction::Move(
+                                Operand::Variable(var.name.clone()),
+                                value,
+                            ));
+                        }
+                    }
                 }
             }
             Statement::Expression(es) => {
@@ -364,6 +397,35 @@ impl IRGenerator {
                     UnaryOp::Plus => {
                         current_block.add_instruction(IRInstruction::Move(d.clone(), op))
                     }
+                    UnaryOp::Deref => {
+                        current_block.add_instruction(IRInstruction::Load(d.clone(), op));
+                    }
+                    UnaryOp::AddrOf => match &*u.operand {
+                        Expression::Identifier(ident) => {
+                            let d = self.new_temp();
+                            current_block.add_instruction(IRInstruction::AddrOf(
+                                d.clone(),
+                                Operand::Variable(ident.name.clone()),
+                            ));
+                            return d;
+                        }
+                        Expression::ArrayAccess(aa) => {
+                            let arr = self.generate_expression(&aa.array, current_block, all_blocks);
+                            let idx = self.generate_expression(&aa.index, current_block, all_blocks);
+                            let d = self.new_temp();
+                            let offset = self.new_temp();
+                            current_block.add_instruction(IRInstruction::Mul(
+                                offset.clone(), idx, Operand::IntLiteral(8)
+                            ));
+                            current_block.add_instruction(IRInstruction::Add(
+                                d.clone(), arr, offset
+                            ));
+                            return d;
+                        }
+                        _ => {
+                            return self.new_temp();
+                        }
+                    },
                     UnaryOp::PreIncrement => {
                         let one = Operand::IntLiteral(1);
                         current_block.add_instruction(IRInstruction::Add(
@@ -411,52 +473,130 @@ impl IRGenerator {
             }
             Expression::Assignment(a) => {
                 let val = self.generate_expression(&a.value, current_block, all_blocks);
-                let tgt = match &*a.target {
-                    Expression::Identifier(i) => Operand::Variable(i.name.clone()),
-                    _ => self.generate_expression(&a.target, current_block, all_blocks),
-                };
-                match a.operator {
-                    AssignmentOp::Assign => {
-                        current_block.add_instruction(IRInstruction::Move(tgt.clone(), val.clone()))
-                    }
-                    AssignmentOp::AddAssign => {
-                        let t = self.new_temp();
-                        current_block.add_instruction(IRInstruction::Add(
-                            t.clone(),
-                            tgt.clone(),
+                match &*a.target {
+                    Expression::ArrayAccess(aa) => {
+                        let arr = self.generate_expression(&aa.array, current_block, all_blocks);
+                        let idx = self.generate_expression(&aa.index, current_block, all_blocks);
+                        current_block.add_instruction(IRInstruction::ArrayStore(
+                            arr.clone(),
+                            idx.clone(),
                             val.clone(),
                         ));
-                        current_block.add_instruction(IRInstruction::Move(tgt.clone(), t));
+                        if a.operator != AssignmentOp::Assign {
+                            let old = self.new_temp();
+                            current_block.add_instruction(IRInstruction::ArrayLoad(
+                                old.clone(),
+                                arr.clone(),
+                                idx.clone(),
+                            ));
+                            let new_val = self.new_temp();
+                            let instr = match a.operator {
+                                AssignmentOp::AddAssign => {
+                                    IRInstruction::Add(new_val.clone(), old, val)
+                                }
+                                AssignmentOp::SubAssign => {
+                                    IRInstruction::Sub(new_val.clone(), old, val)
+                                }
+                                AssignmentOp::MulAssign => {
+                                    IRInstruction::Mul(new_val.clone(), old, val)
+                                }
+                                AssignmentOp::DivAssign => {
+                                    IRInstruction::Div(new_val.clone(), old, val)
+                                }
+                                _ => unreachable!(),
+                            };
+                            current_block.add_instruction(instr);
+                            current_block.add_instruction(IRInstruction::ArrayStore(
+                                arr,
+                                idx,
+                                new_val.clone(),
+                            ));
+                            return new_val;
+                        }
+                        val
                     }
-                    AssignmentOp::SubAssign => {
-                        let t = self.new_temp();
-                        current_block.add_instruction(IRInstruction::Sub(
-                            t.clone(),
-                            tgt.clone(),
-                            val.clone(),
-                        ));
-                        current_block.add_instruction(IRInstruction::Move(tgt.clone(), t));
+                    Expression::Unary(u) if u.operator == UnaryOp::Deref => {
+                        let ptr = self.generate_expression(&u.operand, current_block, all_blocks);
+                        match a.operator {
+                            AssignmentOp::Assign => {
+                                current_block
+                                    .add_instruction(IRInstruction::Store(ptr, val.clone()));
+                            }
+                            _ => {
+                                let old = self.new_temp();
+                                current_block
+                                    .add_instruction(IRInstruction::Load(old.clone(), ptr.clone()));
+                                let new_val = self.new_temp();
+                                let instr = match a.operator {
+                                    AssignmentOp::AddAssign => {
+                                        IRInstruction::Add(new_val.clone(), old, val.clone())
+                                    }
+                                    AssignmentOp::SubAssign => {
+                                        IRInstruction::Sub(new_val.clone(), old, val.clone())
+                                    }
+                                    AssignmentOp::MulAssign => {
+                                        IRInstruction::Mul(new_val.clone(), old, val.clone())
+                                    }
+                                    AssignmentOp::DivAssign => {
+                                        IRInstruction::Div(new_val.clone(), old, val.clone())
+                                    }
+                                    _ => unreachable!(),
+                                };
+                                current_block.add_instruction(instr);
+                                current_block
+                                    .add_instruction(IRInstruction::Store(ptr, new_val.clone()));
+                            }
+                        }
+                        val
                     }
-                    AssignmentOp::MulAssign => {
-                        let t = self.new_temp();
-                        current_block.add_instruction(IRInstruction::Mul(
-                            t.clone(),
-                            tgt.clone(),
-                            val.clone(),
-                        ));
-                        current_block.add_instruction(IRInstruction::Move(tgt.clone(), t));
-                    }
-                    AssignmentOp::DivAssign => {
-                        let t = self.new_temp();
-                        current_block.add_instruction(IRInstruction::Div(
-                            t.clone(),
-                            tgt.clone(),
-                            val.clone(),
-                        ));
-                        current_block.add_instruction(IRInstruction::Move(tgt.clone(), t));
+                    _ => {
+                        let tgt = match &*a.target {
+                            Expression::Identifier(i) => Operand::Variable(i.name.clone()),
+                            _ => self.generate_expression(&a.target, current_block, all_blocks),
+                        };
+                        match a.operator {
+                            AssignmentOp::Assign => current_block
+                                .add_instruction(IRInstruction::Move(tgt.clone(), val.clone())),
+                            AssignmentOp::AddAssign => {
+                                let t = self.new_temp();
+                                current_block.add_instruction(IRInstruction::Add(
+                                    t.clone(),
+                                    tgt.clone(),
+                                    val.clone(),
+                                ));
+                                current_block.add_instruction(IRInstruction::Move(tgt.clone(), t));
+                            }
+                            AssignmentOp::SubAssign => {
+                                let t = self.new_temp();
+                                current_block.add_instruction(IRInstruction::Sub(
+                                    t.clone(),
+                                    tgt.clone(),
+                                    val.clone(),
+                                ));
+                                current_block.add_instruction(IRInstruction::Move(tgt.clone(), t));
+                            }
+                            AssignmentOp::MulAssign => {
+                                let t = self.new_temp();
+                                current_block.add_instruction(IRInstruction::Mul(
+                                    t.clone(),
+                                    tgt.clone(),
+                                    val.clone(),
+                                ));
+                                current_block.add_instruction(IRInstruction::Move(tgt.clone(), t));
+                            }
+                            AssignmentOp::DivAssign => {
+                                let t = self.new_temp();
+                                current_block.add_instruction(IRInstruction::Div(
+                                    t.clone(),
+                                    tgt.clone(),
+                                    val.clone(),
+                                ));
+                                current_block.add_instruction(IRInstruction::Move(tgt.clone(), t));
+                            }
+                        }
+                        val
                     }
                 }
-                val
             }
             Expression::Call(c) => self.generate_call(c, current_block, all_blocks),
             Expression::StructAccess(sa) => {
@@ -470,6 +610,7 @@ impl IRGenerator {
                 current_block.add_instruction(IRInstruction::ArrayLoad(d.clone(), arr, idx));
                 d
             }
+            Expression::ArrayInitializer(_arr) => self.new_temp(),
         }
     }
 
@@ -537,13 +678,13 @@ impl IRGenerator {
         let tl = Operand::Label(tb.label.clone());
         let el = eb_opt.as_ref().map(|b| Operand::Label(b.label.clone()));
         let ml = Operand::Label(mb.label.clone());
-        
+
         if let Some(ref e) = el {
             self.generate_conditional_jump(&is.condition, tl.clone(), e.clone(), cb, ab);
         } else {
             self.generate_conditional_jump(&is.condition, tl.clone(), ml.clone(), cb, ab);
         }
-        
+
         self.generate_statement(&is.then_branch, &mut tb, ab);
         if !tb.is_terminator() {
             tb.add_instruction(IRInstruction::Jump(ml.clone()));
@@ -576,9 +717,9 @@ impl IRGenerator {
         self.break_labels.push(mb.label.clone());
         self.continue_labels.push(condb.label.clone());
         cb.add_instruction(IRInstruction::Jump(cl.clone()));
-        
+
         self.generate_conditional_jump(&ws.condition, bl.clone(), ml.clone(), &mut condb, ab);
-        
+
         ab.push(condb);
         self.generate_statement(&ws.body, &mut bodyb, ab);
         if !bodyb.is_terminator() {
@@ -817,8 +958,6 @@ impl IRGenerator {
         mb
     }
 
-    /// Генерирует прямой условный переход: cmp + jCC label
-    /// вместо Cmp* + JumpIf/JumpIfNot
     fn generate_conditional_jump(
         &mut self,
         condition: &Expression,
@@ -828,14 +967,21 @@ impl IRGenerator {
         all_blocks: &mut Vec<BasicBlock>,
     ) {
         match condition {
-            Expression::Binary(b) if matches!(b.operator,
-                BinaryOp::Gt | BinaryOp::Lt | BinaryOp::Ge | BinaryOp::Le |
-                BinaryOp::Eq | BinaryOp::Ne
-            ) => {
+            Expression::Binary(b)
+                if matches!(
+                    b.operator,
+                    BinaryOp::Gt
+                        | BinaryOp::Lt
+                        | BinaryOp::Ge
+                        | BinaryOp::Le
+                        | BinaryOp::Eq
+                        | BinaryOp::Ne
+                ) =>
+            {
                 let left = self.generate_expression(&b.left, current_block, all_blocks);
                 let right = self.generate_expression(&b.right, current_block, all_blocks);
                 let is_float = self.is_float_operand(&b.left) || self.is_float_operand(&b.right);
-                
+
                 let (cmp_instr, jcc_true) = match (b.operator, is_float) {
                     (BinaryOp::Gt, false) => ("cmp", "jg"),
                     (BinaryOp::Gt, true) => ("ucomisd", "ja"),

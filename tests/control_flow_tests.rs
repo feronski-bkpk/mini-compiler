@@ -32,10 +32,10 @@ fn compile_and_run(source: &str) -> i32 {
         .expect("nasm not found");
     assert!(nasm.success(), "NASM failed for {}", asm_file);
 
-    let ld = Command::new("ld")
-        .args(&[&obj_file, "-o", &exe_file])
+    let ld = Command::new("gcc")
+        .args(&["-no-pie", &obj_file, "-o", &exe_file])
         .status()
-        .expect("ld not found");
+        .expect("gcc not found");
     assert!(ld.success(), "ld failed for {}", obj_file);
 
     let output = Command::new(format!("./{}", exe_file))

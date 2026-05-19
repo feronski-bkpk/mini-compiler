@@ -247,6 +247,7 @@ impl IRStatistics {
                         IRInstruction::ArrayLoad(_, _, _) => "ARRAY_LOAD",
                         IRInstruction::ArrayStore(_, _, _) => "ARRAY_STORE",
                         IRInstruction::CmpJmp(_, _, _, _, _, _, _) => "CMP_JMP",
+                        IRInstruction::AddrOf(_, _) => "ADDR_OF",
                     };
 
                     *stats

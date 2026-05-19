@@ -66,8 +66,31 @@ impl PeepholeOptimizer {
     fn optimize_function(func: &mut super::basic_block::FunctionIR) -> OptimizationReport {
         let mut report = OptimizationReport::new();
 
+        let mut used_vars = HashSet::new();
+        let mut used_temps = HashSet::new();
+        for block in func.blocks.values() {
+            for instr in &block.instructions {
+                for op in instr.operands() {
+                    match op {
+                        Operand::Variable(name) => { used_vars.insert(name.clone()); }
+                        Operand::Temporary(name) => { used_temps.insert(name.clone()); }
+                        _ => {}
+                    }
+                }
+                if !matches!(instr, IRInstruction::Move(_, _)) {
+                    for op in instr.all_operands() {
+                        match op {
+                            Operand::Variable(name) => { used_vars.insert(name.clone()); }
+                            Operand::Temporary(name) => { used_temps.insert(name.clone()); }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
         for block in func.blocks.values_mut() {
-            let block_report = Self::optimize_block(block);
+            let block_report = Self::optimize_block(block, &used_vars, &used_temps);
             if block_report.changes_made > 0 {
                 report.add(&block_report);
             }
@@ -215,7 +238,6 @@ impl PeepholeOptimizer {
             | IRInstruction::Not(dest, _)
             | IRInstruction::Xor(dest, _, _)
             | IRInstruction::Load(dest, _)
-            | IRInstruction::Call(dest, _, _)
             | IRInstruction::IntToFloat(dest, _)
             | IRInstruction::FloatToInt(dest, _) => {
                 if let Operand::Variable(name) = dest {
@@ -228,7 +250,7 @@ impl PeepholeOptimizer {
         }
     }
 
-    fn optimize_block(block: &mut super::basic_block::BasicBlock) -> OptimizationReport {
+    fn optimize_block(block: &mut super::basic_block::BasicBlock, used_vars: &HashSet<String>, used_temps: &HashSet<String>) -> OptimizationReport {
         let mut report = OptimizationReport::new();
         let mut new_instructions = Vec::new();
 
@@ -250,23 +272,6 @@ impl PeepholeOptimizer {
             }
 
             new_instructions.push(instr.clone());
-        }
-
-        let mut used_vars = HashSet::new();
-        let mut used_temps = HashSet::new();
-
-        for instr in &new_instructions {
-            for op in instr.operands() {
-                match op {
-                    Operand::Temporary(name) => {
-                        used_temps.insert(name.clone());
-                    }
-                    Operand::Variable(name) => {
-                        used_vars.insert(name.clone());
-                    }
-                    _ => {}
-                }
-            }
         }
 
         let mut after_dead = Vec::new();
@@ -311,12 +316,12 @@ impl PeepholeOptimizer {
                 | IRInstruction::FloatToInt(dest, _)
                 | IRInstruction::Load(dest, _)
                 | IRInstruction::Alloca(dest, _)
-                | IRInstruction::Gep(dest, _, _)
-                | IRInstruction::Call(dest, _, _) => match dest {
+                | IRInstruction::Gep(dest, _, _) => match dest {
                     Operand::Temporary(name) => used_temps.contains(name),
                     Operand::Variable(name) => used_vars.contains(name),
                     _ => true,
                 },
+                IRInstruction::Call(_, _, _) => true,
                 _ => true,
             };
 

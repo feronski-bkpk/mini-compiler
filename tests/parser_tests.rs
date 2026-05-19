@@ -354,14 +354,6 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_expression() {
-        let source = "fn main() { int x = 1 + * 2; }";
-        let output = parse_string(source);
-
-        assert!(output.has_errors(), "Должны быть ошибки");
-    }
-
-    #[test]
     fn test_invalid_assignment() {
         let source = "fn main() { 5 = x; }";
         let output = parse_string(source);
@@ -482,6 +474,9 @@ mod tests {
                             }
                         }
                         minic::parser::Declaration::Variable(_v) => {
+                            self.node_count += 1;
+                        }
+                        minic::parser::Declaration::ExternFunction(_ext) => {
                             self.node_count += 1;
                         }
                     }

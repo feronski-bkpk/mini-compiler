@@ -391,8 +391,8 @@ mod tests {
             dump
         );
         assert!(
-            dump.contains("global_s: переменная - string"),
-            "global_s should be string, got: {}",
+            dump.contains("global_s: переменная - char*"),
+            "global_s should be char*, got: {}",
             dump
         );
     }
